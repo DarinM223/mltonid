@@ -1,0 +1,10 @@
+$(SML_LIB)/basis/basis.mlb
+$(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
+../lib/mlton/sources.mlb
+../mlton/ast/sources.mlb
+../mlton/atoms/sources.mlb
+../mlton/control/sources.mlb
+../mlton/core-ml/sources.mlb
+../mlton/elaborate/sources.mlb
+../mlton/front-end/sources.mlb
+main.sml
