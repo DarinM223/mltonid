@@ -1,0 +1,8 @@
+version = 1
+[workspace]
+root = "mltonid.mlb"
+[diagnostics]
+5043.severity = "ignore"
+5034.severity = "ignore"
+4037.severity = "ignore"
+3007.severity = "ignore"

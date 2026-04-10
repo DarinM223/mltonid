@@ -1,0 +1,4 @@
+$(SML_LIB)/basis/basis.mlb
+$(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
+src/mlton/ast/sources.mlb
+src/mlton/front-end/sources.mlb
