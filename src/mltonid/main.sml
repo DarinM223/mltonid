@@ -216,3 +216,10 @@ fun parseAndElaborateMLB input =
    in
       ()
    end
+
+val arg =
+   case CommandLine.arguments () of
+     [arg] => arg
+   | _ => raise Fail "Expected argument"
+val () = print ("Arg: " ^ arg ^ "\n")
+val () = parseAndElaborateMLB (MLBString.fromMLBFile arg)

@@ -1,6 +1,6 @@
 version = 1
 [workspace]
-root = "mltonid.mlb"
+root = "mltonid.cm"
 [diagnostics]
 5043.severity = "ignore"
 5034.severity = "ignore"
