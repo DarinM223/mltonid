@@ -217,9 +217,16 @@ fun parseAndElaborateMLB input =
       ()
    end
 
-val arg =
-   case CommandLine.arguments () of
-     [arg] => arg
-   | _ => raise Fail "Expected argument"
-val () = print ("Arg: " ^ arg ^ "\n")
-val () = parseAndElaborateMLB (MLBString.fromMLBFile arg)
+fun main () =
+let
+   val arg =
+      case CommandLine.arguments () of
+        [arg] => arg
+      | _ => raise Fail "Expected argument"
+   val () = print ("Arg: " ^ arg ^ "\n")
+   val () = parseAndElaborateMLB (MLBString.fromMLBFile arg)
+in
+   ()
+end
+
+val () = if MLton.isMLton then main () else ()

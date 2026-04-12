@@ -6,7 +6,7 @@
  * See the file MLton-LICENSE for details.
  *)
 
-structure Time: TIME = 
+structure Time: TIME =
 struct
 
 open Pervasive.LargeInt
@@ -23,7 +23,8 @@ type times =
     }
 
 fun times (): times =
-   let
+   raise Fail "times() unimplemented"
+   (* let
      val {self, children, gc} = MLton.Rusage.rusage ()
      fun doit ({utime, stime, ...} : MLton.Rusage.t)
        = {utime = utime, stime = stime}
@@ -31,13 +32,13 @@ fun times (): times =
      {self = doit self,
       children = doit children,
       gc = doit gc}
-   end
+   end *)
 
 val zero = fromReal 0.0
 
 val equals = op =
 
-val seconds = fromSeconds   
+val seconds = fromSeconds
 
 fun minutes m = seconds (m * fromInt 60)
 

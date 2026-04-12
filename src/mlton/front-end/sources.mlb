@@ -16,7 +16,7 @@ local
    ann "warnUnused false"
    in
       ml.grm.sig
-      ml.grm.sml 
+      ml.grm.sml
       ml.lex.sml
    end
    front-end.sig
