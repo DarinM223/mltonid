@@ -7,7 +7,7 @@
  * See the file MLton-LICENSE for details.
  *)
 
-signature ELABORATE_STRUCTS = 
+signature ELABORATE_STRUCTS =
    sig
       structure Ast: AST
       structure CoreML: CORE_ML
@@ -18,11 +18,13 @@ signature ELABORATE_STRUCTS =
       sharing CoreML.Type = TypeEnv.Type
    end
 
-signature ELABORATE = 
+signature ELABORATE =
    sig
       include ELABORATE_STRUCTS
 
       structure Env: ELABORATE_ENV
+
+      val psi : (File.t, Env.Basis.t Promise.t) HashTable.t
 
       val elaborateMLB:
          Ast.Basdec.t * {addPrim: Env.t -> CoreML.Dec.t list}

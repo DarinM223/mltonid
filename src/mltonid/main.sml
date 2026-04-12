@@ -217,12 +217,20 @@ fun parseAndElaborateMLB input =
       ()
    end
 
+(* TODO: put this in configuration file or environment variables *)
+val () = Control.mlbPathVars := {var = "SML_LIB", path = "/usr/local/lib/mlton/sml"}
+   :: {var = "LIB_MLTON_DIR", path = "/home/d/Documents/mirrored/mlton/build/lib/mlton"}
+   :: {var = "TARGET", path = "self"}
+   :: !Control.mlbPathVars
+
 fun main () =
 let
    val arg =
       case CommandLine.arguments () of
         [arg] => arg
       | _ => raise Fail "Expected argument"
+   val () = print ("Arg: " ^ arg ^ "\n")
+   val () = parseAndElaborateMLB (MLBString.fromMLBFile arg)
    val () = print ("Arg: " ^ arg ^ "\n")
    val () = parseAndElaborateMLB (MLBString.fromMLBFile arg)
 in
