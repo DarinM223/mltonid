@@ -223,23 +223,10 @@ val () = Control.mlbPathVars := {var = "SML_LIB", path = "/usr/local/lib/mlton/s
    :: {var = "TARGET", path = "self"}
    :: !Control.mlbPathVars
 
-fun swallow f = f () handle _ => ()
-
 fun reelaborateForChanges lastTime mlb basdec =
 let
-   exception NotInTable
-   val changed = HashTable.new {hash = String.hash, equals = String.equals}
    fun isModified file = Time.>(File.modTime file, lastTime)
-   fun reelaborateMLB mlb =
-   HashTable.lookupOrInsert (changed, mlb, fn () =>
-   let
-      val () = print ("Reelaborating: " ^ mlb ^ "\n")
-      val () = HashTable.remove (Elaborate.psi, mlb) handle _ => ()
-   in
-      (* Layout.toString (Layout.compact (Env.Basis.layout oldBasis)) <> Layout.toString (Layout.compact (Env.Basis.layout newBasis)) *)
-      true
-   end
-   handle NotInTable => true)
+   fun reelaborateMLB mlb = (HashTable.remove (Elaborate.psi, mlb) handle _ => (); true)
    fun reelaborateForChanges mlb (Ast.Basdec.Ann (_, _, basdec)) = reelaborateForChanges mlb (Ast.Basdec.node basdec)
      | reelaborateForChanges mlb (Ast.Basdec.MLB ({fileAbs, ...}, basdec)) =
        (if isModified fileAbs then reelaborateMLB fileAbs
@@ -283,15 +270,33 @@ end
  | Prog of {fileAbs: File.t, fileUse: File.t} * Program.t Promise.t
  | Seq of basdec list *)
 
+fun diagnosticToFile file thunk =
+   File.withOut (file, fn out =>
+      let
+         val writer = !Control.diagnosticWriter
+         val () = Control.diagnosticWriter := SOME (fn layout => Layout.outputl (layout, out))
+         val result = thunk () handle e => (Control.diagnosticWriter := writer; raise e);
+      in
+         Control.diagnosticWriter := writer;
+         result
+      end)
+
+fun clearScreen () =
+  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+  in TextIO.output (strm, "\^[[H\^[[2J"); TextIO.closeOut strm
+  end
+
 fun main () =
 let
    val arg =
       case CommandLine.arguments () of
         [arg] => arg
       | _ => raise Fail "Expected argument"
-   val () = print ("Arg: " ^ arg ^ "\n")
+   val () = clearScreen ()
    val time = ref (Time.now ())
-   val () = swallow (fn () => parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)))
+   val () = Control.diagnosticWriter := SOME (fn layout => Layout.outputl (layout, Out.error))
+   val () = parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)) handle _ => ()
+   val errorFile = "errors.txt"
 in
    while true do
    let
@@ -299,14 +304,17 @@ in
       val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
       val time' = Time.now ()
       val changed = reelaborateForChanges (!time) arg basis
-      val () = time := time'
-      val () = if changed then swallow (fn () => parseAndElaborateMLB basis) else ()
+      val () = if changed then diagnosticToFile errorFile (fn () => parseAndElaborateMLB basis) handle _ => () else ()
       val finishTime = Time.now ()
       val seconds: IntInf.int = Time.toSeconds (Time.-(finishTime, time'))
-      val () = if changed then print ("Finished reelaborating in " ^ IntInf.toString seconds ^ " seconds\n") else ()
-      val () = OS.Process.sleep (Time.seconds 1)
    in
-      ()
+      if changed then
+      (clearScreen ()
+      ; print ((if !Control.numErrors > 0 then "\nError (" else "\nSuccess (") ^ IntInf.toString seconds ^ "s): \n")
+      ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
+      ) else ();
+      if not changed then OS.Process.sleep (Time.seconds 1) else ();
+      time := time'
    end
 end
 

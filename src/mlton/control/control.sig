@@ -13,7 +13,7 @@ signature CONTROL =
 
       (* Tracing and other informative messages.
        * Some take a verbosity argument that specifies the verbosity level at
-       * which messages should be printed. 
+       * which messages should be printed.
        *)
       val message: verbosity * (unit -> Layout.t) -> unit
       val messageStr: verbosity * string -> unit
@@ -22,7 +22,7 @@ signature CONTROL =
       type traceAccum
       val traceAccum: verbosity * string -> (traceAccum * (unit -> unit))
       val traceAdd: traceAccum * string -> ('a -> 'b) -> 'a -> 'b
-      val traceBatch: verbosity * string -> ('a -> 'b) -> 
+      val traceBatch: verbosity * string -> ('a -> 'b) ->
                       (('a -> 'b) * (unit -> unit))
       val traceTop: string -> ('a -> unit) -> 'a -> unit
       val indent: unit -> unit
@@ -52,6 +52,7 @@ signature CONTROL =
          Layout of 'a -> Layout.t
        | Layouts of 'a * (Layout.t -> unit) -> unit
 
+      val diagnosticWriter: (Layout.t -> unit) option ref
       val diagnostic: (unit -> Layout.t) -> unit
       val diagnostics: ((Layout.t -> unit) -> unit) -> unit
       val saveToFile:

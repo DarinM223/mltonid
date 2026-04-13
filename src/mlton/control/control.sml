@@ -143,8 +143,8 @@ fun traceTop (name: string) (f: 'a -> unit) (a: 'a) =
                        ; unindent ()))
              ; OS.Process.exit OS.Process.failure)
 
-type traceAccum = {verb: verbosity, 
-                   total: Time.t ref, 
+type traceAccum = {verb: verbosity,
+                   total: Time.t ref,
                    totalGC: Time.t ref}
 
 val traceAccum: (verbosity * string) -> (traceAccum * (unit -> unit)) =
@@ -155,7 +155,7 @@ val traceAccum: (verbosity * string) -> (traceAccum * (unit -> unit)) =
    in
      ({verb = verb, total = total, totalGC = totalGC},
       fn () => messageStr (verb,
-                           concat [name, 
+                           concat [name,
                                    " totals ",
                                    timeToString
                                    {total = !total,
@@ -204,6 +204,16 @@ val ('a, 'b) traceBatch: (verbosity * string) -> ('a -> 'b) ->
      (traceAdd (ta,name) f, taMsg)
    end
 
+val diagnosticWriter: (Layout.t -> unit) option ref = ref NONE
+
+fun diagnostics f =
+   case !diagnosticWriter of
+      NONE => ()
+    | SOME w => f w
+
+fun diagnostic f = diagnostics (fn disp => disp (f ()))
+
+
 (*------------------------------------*)
 (*               Errors               *)
 (*------------------------------------*)
@@ -223,12 +233,18 @@ local
             (concat [String.fromChar (Char.toUpper (String.sub (msg, 0))),
                      String.dropPrefix (msg, 1),
                      "."])
+         val layout = align [seq [str (concat [kind, ": "]), str r, str "."],
+                            indent (align [msg,
+                                           indent (extra, 2)],
+                                    2)]
+
          in
-            outputl (align [seq [str (concat [kind, ": "]), str r, str "."],
+            diagnostic (fn () => layout)
+            (* outputl (align [seq [str (concat [kind, ": "]), str r, str "."],
                             indent (align [msg,
                                            indent (extra, 2)],
                                     2)],
-                     Out.error)
+                     Out.error) *)
       end
 in
    fun warning (r, m, e) = msg ("Warning", r, m, e)
@@ -274,15 +290,6 @@ fun 'a sizeMessage (name: string, a: 'a): Layout.t =
    in str (concat [name, " size = ",
                    IntInf.toCommaString (MLton.size a), " bytes"])
    end
-
-val diagnosticWriter: (Layout.t -> unit) option ref = ref NONE
-
-fun diagnostics f =
-   case !diagnosticWriter of
-      NONE => ()
-    | SOME w => f w
-
-fun diagnostic f = diagnostics (fn disp => disp (f ()))
 
 fun saveToFile {arg: 'a,
                 name: string option,
