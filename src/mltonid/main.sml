@@ -209,7 +209,7 @@ val lexAndParseMLB: MLBString.t -> Ast.Basdec.t =
       ast
    end
 
-fun parseAndElaborateMLB input =
+fun parseAndElaborateMLB input addPrim =
    let
       val (E, decs) = Elaborate.elaborateMLB (input, {addPrim = addPrim})
       val _ = Control.checkForErrors ()
@@ -223,50 +223,59 @@ val () = Control.mlbPathVars := {var = "SML_LIB", path = "/usr/local/lib/mlton/s
    :: {var = "TARGET", path = "self"}
    :: !Control.mlbPathVars
 
-fun swallow f = f () handle _ => ()
-
-fun reelaborateForChanges lastTime mlb basdec =
+fun reelaborateForChanges (lastTime, basdec) =
 let
    exception NotInTable
    val changed = HashTable.new {hash = String.hash, equals = String.equals}
    fun isModified file = Time.>(File.modTime file, lastTime)
-   fun reelaborateMLB mlb =
-   HashTable.lookupOrInsert (changed, mlb, fn () =>
-   let
-      val () = print ("Reelaborating: " ^ mlb ^ "\n")
-      val () = HashTable.remove (Elaborate.psi, mlb) handle _ => ()
-   in
-      (* Layout.toString (Layout.compact (Env.Basis.layout oldBasis)) <> Layout.toString (Layout.compact (Env.Basis.layout newBasis)) *)
-      true
-   end
-   handle NotInTable => true)
-   fun reelaborateForChanges mlb (Ast.Basdec.Ann (_, _, basdec)) = reelaborateForChanges mlb (Ast.Basdec.node basdec)
-     | reelaborateForChanges mlb (Ast.Basdec.MLB ({fileAbs, ...}, basdec)) =
-       (if isModified fileAbs then reelaborateMLB fileAbs
-        else reelaborateForChanges fileAbs (Ast.Basdec.node (Promise.force basdec))) andalso reelaborateMLB mlb
-     | reelaborateForChanges mlb (Ast.Basdec.Seq basdecs) =
-       List.exists (List.map (basdecs, reelaborateForChanges mlb o Ast.Basdec.node), fn b => b)
-       andalso reelaborateMLB mlb
-     | reelaborateForChanges mlb (Ast.Basdec.Local (l, body)) =
-       (reelaborateForChanges mlb (Ast.Basdec.node l)
-        orelse reelaborateForChanges mlb (Ast.Basdec.node body))
-       andalso reelaborateMLB mlb
-     | reelaborateForChanges mlb (Ast.Basdec.Basis basexps) =
-       let
-         fun go (Ast.Basexp.Bas basdec) = reelaborateForChanges mlb (Ast.Basdec.node basdec)
-           | go (Ast.Basexp.Let (basdec, basexp)) =
-             reelaborateForChanges mlb (Ast.Basdec.node basdec)
-             orelse go (Ast.Basexp.node basexp)
-           | go _ = false
-         val basexps = Vector.map (basexps, fn {def, ...} => go (Ast.Basexp.node def))
-       in
-         Vector.exists (basexps, fn b => b) andalso reelaborateMLB mlb
-       end
-     | reelaborateForChanges mlb (Ast.Basdec.Prog ({fileAbs, ...}, _)) =
-       isModified fileAbs andalso reelaborateMLB mlb
-     | reelaborateForChanges _ _ = false
+   fun reelaborateMLB basis =
+      case Ast.Basdec.node basis of
+         Ast.Basdec.MLB ({fileAbs, ...}, basdec) =>
+            HashTable.lookupOrInsert (changed, fileAbs, fn () =>
+            let
+               val () = print ("Reelaborating: " ^ fileAbs ^ "\n")
+               val oldBasis = HashTable.lookupOrInsert (Elaborate.psi, fileAbs, fn () => raise NotInTable)
+               val () = HashTable.remove (Elaborate.psi, fileAbs)
+               val () = parseAndElaborateMLB basis (fn _ => [])
+               val newBasis = HashTable.lookupOrInsert (Elaborate.psi, fileAbs, fn () => raise NotInTable)
+            in
+               (* Layout.toString (Layout.compact (Env.Basis.layout oldBasis)) <> Layout.toString (Layout.compact (Env.Basis.layout newBasis)) *)
+               true
+            end
+            handle NotInTable => (HashTable.remove (Elaborate.psi, fileAbs) handle _ => (); true))
+      |  _ => true
+   fun reelaborateForChanges (mlb : Ast.Basdec.t) (basis : Ast.Basdec.t) =
+      case Ast.Basdec.node basis of
+        Ast.Basdec.Ann (_, _, basdec) => reelaborateForChanges mlb basdec
+      | Ast.Basdec.MLB ({fileAbs, ...}, basdec) =>
+          let val basdec = Promise.force basdec
+          in
+           (if isModified fileAbs then reelaborateMLB basis
+            else reelaborateForChanges basis basdec)
+           andalso reelaborateMLB mlb
+          end
+      | Ast.Basdec.Seq basdecs =>
+          List.exists (List.map (basdecs, reelaborateForChanges mlb), fn b => b)
+      | Ast.Basdec.Local (l, body) =>
+          ( ignore (reelaborateForChanges mlb l)
+          ; reelaborateForChanges mlb body
+          )
+      | Ast.Basdec.Basis basexps =>
+          let
+            fun go (Ast.Basexp.Bas basdec) = reelaborateForChanges mlb basdec
+              | go (Ast.Basexp.Let (basdec, basexp)) =
+                reelaborateForChanges mlb basdec
+                orelse go (Ast.Basexp.node basexp)
+              | go _ = false
+            val basexps = Vector.map (basexps, fn {def, ...} => go (Ast.Basexp.node def))
+          in
+            Vector.exists (basexps, fn b => b)
+          end
+      | Ast.Basdec.Prog ({fileAbs, ...}, _) =>
+          isModified fileAbs andalso reelaborateMLB mlb
+      | _ => false
 in
-   reelaborateForChanges mlb (Ast.Basdec.node basdec)
+   reelaborateForChanges basdec basdec
 end
 
 (* datatype basexpNode =
@@ -291,20 +300,19 @@ let
       | _ => raise Fail "Expected argument"
    val () = print ("Arg: " ^ arg ^ "\n")
    val time = ref (Time.now ())
-   val () = swallow (fn () => parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)))
+   val () = parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)) addPrim handle _ => ()
 in
    while true do
    let
       val () = Control.numErrors := 0
       val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
       val time' = Time.now ()
-      val changed = reelaborateForChanges (!time) arg basis
+      val changed = reelaborateForChanges (!time, basis) handle _ => true
       val () = time := time'
-      val () = if changed then swallow (fn () => parseAndElaborateMLB basis) else ()
       val finishTime = Time.now ()
       val seconds: IntInf.int = Time.toSeconds (Time.-(finishTime, time'))
       val () = if changed then print ("Finished reelaborating in " ^ IntInf.toString seconds ^ " seconds\n") else ()
-      val () = OS.Process.sleep (Time.seconds 1)
+      val () = if not changed then OS.Process.sleep (Time.seconds 1) else ()
    in
       ()
    end
