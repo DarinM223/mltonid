@@ -223,10 +223,25 @@ val () = Control.mlbPathVars := {var = "SML_LIB", path = "/usr/local/lib/mlton/s
    :: {var = "TARGET", path = "self"}
    :: !Control.mlbPathVars
 
+val escapeCode = "\^[[H\^["
+
+fun clearScreen () =
+  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+  in TextIO.output (strm, escapeCode ^ "c"); TextIO.closeOut strm
+  end
+
+fun printTopLeft text =
+  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+  in TextIO.output (strm, escapeCode ^ "[1;1H" ^ text); TextIO.closeOut strm
+  end
+
+fun inGreen text = escapeCode ^ "[32m" ^ text ^ escapeCode ^ "[0m"
+fun inRed text = escapeCode ^ "[31m" ^ text ^ escapeCode ^ "[0m"
+
 fun reelaborateForChanges lastTime mlb basdec =
 let
    fun isModified file = Time.>(File.modTime file, lastTime)
-   fun reelaborateMLB mlb = (HashTable.remove (Elaborate.psi, mlb) handle _ => (); true)
+   fun reelaborateMLB mlb = (if Option.isSome (HashTable.peek (Elaborate.psi, mlb)) then printTopLeft ("Reelaborating " ^ mlb ^ "\n") else (); HashTable.remove (Elaborate.psi, mlb) handle _ => (); true)
    fun reelaborateForChanges mlb (Ast.Basdec.Ann (_, _, basdec)) = reelaborateForChanges mlb (Ast.Basdec.node basdec)
      | reelaborateForChanges mlb (Ast.Basdec.MLB ({fileAbs, ...}, basdec)) =
        (if isModified fileAbs then reelaborateMLB fileAbs
@@ -281,11 +296,6 @@ fun diagnosticToFile file thunk =
          result
       end)
 
-fun clearScreen () =
-  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
-  in TextIO.output (strm, "\^[[H\^[[2J"); TextIO.closeOut strm
-  end
-
 fun main () =
 let
    val arg =
@@ -301,16 +311,24 @@ in
    while true do
    let
       val () = Control.numErrors := 0
-      val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
       val time' = Time.now ()
+      val changed = diagnosticToFile errorFile (fn () =>
+      let
+      val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
       val changed = reelaborateForChanges (!time) arg basis
-      val () = if changed then diagnosticToFile errorFile (fn () => parseAndElaborateMLB basis) handle _ => () else ()
+      in
+      if changed then parseAndElaborateMLB basis else (); changed end) handle _ => true
       val finishTime = Time.now ()
       val seconds: IntInf.int = Time.toSeconds (Time.-(finishTime, time'))
+      fun printStatus () =
+         if !Control.numErrors > 0 then
+            print (inRed ("Error (" ^ IntInf.toString seconds ^ "s):\n"))
+         else
+            print (inGreen ("Success (" ^ IntInf.toString seconds ^ "s):\n"))
    in
       if changed then
-      (clearScreen ()
-      ; print ((if !Control.numErrors > 0 then "\nError (" else "\nSuccess (") ^ IntInf.toString seconds ^ "s): \n")
+      ( clearScreen ()
+      ; printStatus ()
       ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
       ) else ();
       if not changed then OS.Process.sleep (Time.seconds 1) else ();
