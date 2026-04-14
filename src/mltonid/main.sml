@@ -224,8 +224,12 @@ fun clearScreen () =
   end
 
 fun printTopLeft text =
-  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
-  in TextIO.output (strm, escapeCode ^ "[1;1H" ^ text); TextIO.closeOut strm
+  let
+    val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+  in
+    (* pad X by 15 spaces so that it is to the right of the status line *)
+    TextIO.output (strm, escapeCode ^ "[1;15H" ^ text);
+    TextIO.closeOut strm
   end
 
 fun inGreen text =
@@ -311,6 +315,12 @@ fun diagnosticToFile file thunk =
       result
     end)
 
+fun printStatus seconds =
+  if ! Control.numErrors > 0 then
+    print (inRed ("Error (" ^ IntInf.toString seconds ^ "s):\n"))
+  else
+    print (inGreen ("Success (" ^ IntInf.toString seconds ^ "s):\n"))
+
 fun main () =
   let
     val arg =
@@ -319,41 +329,40 @@ fun main () =
       | _ => raise Fail "Expected argument"
     val () = clearScreen ()
     val time = ref (Time.now ())
-    val () =
-      Control.diagnosticWriter
-      := SOME (fn layout => Layout.outputl (layout, Out.error))
-    val () = parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
-             handle _ => ()
-    val errorFile = "errors.txt"
+    val errorFile = OS.FileSys.tmpName ()
   in
+    Control.diagnosticWriter
+    := SOME (fn layout => Layout.outputl (layout, Out.error));
+    print "Initial elaboration...\n";
+    ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
+    ; clearScreen ()
+    ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
+    )
+    handle _ => ();
     while true do
       let
         val () = Control.numErrors := 0
-        val time' = Time.now ()
+        val startTime = Time.now ()
         val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
         val changed =
           diagnosticToFile errorFile (fn () =>
-            let val changed = reelaborateForChanges (!time) arg basis
-            in if changed then parseAndElaborateMLB basis else (); changed
+            let
+              val changed = reelaborateForChanges (!time) arg basis
+            in
+              if changed then (time := Time.now (); parseAndElaborateMLB basis)
+              else ();
+              changed
             end)
           handle _ => true
-        val finishTime = Time.now ()
-        val seconds: IntInf.int = Time.toSeconds (Time.- (finishTime, time'))
-        fun printStatus () =
-          if ! Control.numErrors > 0 then
-            print (inRed ("Error (" ^ IntInf.toString seconds ^ "s):\n"))
-          else
-            print (inGreen ("Success (" ^ IntInf.toString seconds ^ "s):\n"))
+        val seconds = Time.toSeconds (Time.- (Time.now (), startTime))
       in
         if changed then
           ( clearScreen ()
-          ; printStatus ()
+          ; printStatus seconds
           ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
           )
         else
-          ();
-        if not changed then OS.Process.sleep (Time.seconds 1) else ();
-        time := time'
+          OS.Process.sleep (Time.seconds 1)
       end
       handle _ => print "Error parsing MLB\n"
   end
