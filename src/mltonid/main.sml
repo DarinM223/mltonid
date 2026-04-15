@@ -198,6 +198,9 @@ fun parseAndElaborateMLB input =
   let
     val (E, decs) = Elaborate.elaborateMLB (input, {addPrim = addPrim})
     val _ = Control.checkForErrors ()
+    val decs = Vector.map (decs, #1)
+    val decs = Vector.concatV (Vector.map (decs, Vector.fromList))
+    val _ = Control.checkForErrors ()
   in
     ()
   end
@@ -321,6 +324,18 @@ fun setControlRefs () =
     Control.libTargetDir := mltonDir ^ "/targets/" ^ target
   end
 
+val defaultAnns =
+  [ "nonexhaustiveBind warn"
+  , "nonexhaustiveMatch warn"
+  , "redundantBind warn"
+  , "redundantMatch warn"
+  , "sequenceNonUnit warn"
+  , "warnUnused true"
+  ]
+
+fun setDefaultAnnotations anns =
+  List.foreach (anns, fn ann => ignore (Control.Elaborate.processDefault ann))
+
 fun main () =
   let
     val () = setControlRefs ()
@@ -333,10 +348,19 @@ fun main () =
     val time = ref (Time.now ())
     val errorFile = OS.FileSys.tmpName ()
   in
+    (* setDefaultAnnotations defaultAnns; *)
+    (* Control.defaults (); *)
+    case Control.Elaborate.current (Control.Elaborate.nonexhaustiveMatch) of
+      Control.Elaborate.DiagEIW.Error => print "Error\n"
+    | Control.Elaborate.DiagEIW.Warn => print "Warn\n"
+    | Control.Elaborate.DiagEIW.Ignore => print "Ignore\n";
+    (* Layout.outputl (Control.Elaborate.document {expert=false}, Out.error); *)
     Control.diagnosticWriter
     := SOME (fn layout => Layout.outputl (layout, Out.error));
     print "Initial elaboration...\n";
-    ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
+    ( (* parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)) *)
+    ignore (Elaborate.elaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg), {addPrim = addPrim}))
+    ; ignore (Control.checkForErrors ())
     ; clearScreen ()
     ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
     )

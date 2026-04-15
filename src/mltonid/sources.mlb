@@ -6,5 +6,6 @@ $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
 ../mlton/control/sources.mlb
 ../mlton/core-ml/sources.mlb
 ../mlton/elaborate/sources.mlb
+../mlton/match-compile/sources.mlb
 ../mlton/front-end/sources.mlb
 main.sml
