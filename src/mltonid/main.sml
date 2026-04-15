@@ -202,20 +202,6 @@ fun parseAndElaborateMLB input =
     ()
   end
 
-(* TODO: put this in configuration file or environment variables *)
-val () =
-  Control.mlbPathVars
-  :=
-  {var = "SML_LIB", path = "/usr/local/lib/mlton/sml"}
-  ::
-  { var = "LIB_MLTON_DIR"
-  , path = "/home/d/Documents/mirrored/mlton/build/lib/mlton"
-  } :: {var = "TARGET", path = "self"} :: ! Control.mlbPathVars
-
-val () =
-  Control.libTargetDir
-  := "/home/d/Documents/mirrored/mlton/build/lib/mlton/targets/self"
-
 val escapeCode = "\^[[H\^["
 
 fun clearScreen () =
@@ -287,20 +273,6 @@ fun reelaborateForChanges lastTime mlb basdec =
     reelaborateForChanges mlb (Ast.Basdec.node basdec)
   end
 
-(* datatype basexpNode =
-   Bas of basdec
- | Let of basdec * basexp
- | Var of Basid.t *)
-(* Ann of string * Region.t * basdec
-| Basis of {name: Basid.t, def: basexp} vector
-| Defs of ModIdBind.t
-| Local of basdec * basdec
-| MLB of {fileAbs: File.t, fileUse: File.t} * basdec Promise.t
-| Open of Basid.t vector
-| Prim
-| Prog of {fileAbs: File.t, fileUse: File.t} * Program.t Promise.t
-| Seq of basdec list *)
-
 fun diagnosticToFile file thunk =
   File.withOut (file, fn out =>
     let
@@ -321,12 +293,42 @@ fun printStatus seconds =
   else
     print (inGreen ("Success (" ^ IntInf.toString seconds ^ "s):\n"))
 
+fun setControlRefs () =
+  let
+    exception InvalidEnvVar
+    val mltonDir =
+      case OS.Process.getEnv "LIB_MLTON_DIR" of
+        SOME path => path
+      | NONE =>
+          ( print "Expected LIB_MLTON_DIR environment variable to be set\n"
+          ; raise InvalidEnvVar
+          )
+    val target =
+      case OS.Process.getEnv "TARGET" of
+        SOME path => path
+      | NONE => "self"
+    fun addVar tup =
+      Control.mlbPathVars := tup :: ! Control.mlbPathVars
+  in
+    case OS.Process.getEnv "SML_LIB" of
+      SOME path => addVar {var = "SML_LIB", path = path}
+    | NONE =>
+        ( print "Expected SML_LIB environment variable to be set\n"
+        ; raise InvalidEnvVar
+        );
+    addVar {var = "LIB_MLTON_DIR", path = mltonDir};
+    addVar {var = "TARGET", path = target};
+    Control.libTargetDir := mltonDir ^ "/targets/" ^ target
+  end
+
 fun main () =
   let
+    val () = setControlRefs ()
+    exception InvalidArgument
     val arg =
       case CommandLine.arguments () of
         [arg] => arg
-      | _ => raise Fail "Expected argument"
+      | _ => (print "Expected MLB file path argument\n"; raise InvalidArgument)
     val () = clearScreen ()
     val time = ref (Time.now ())
     val errorFile = OS.FileSys.tmpName ()
