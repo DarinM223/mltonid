@@ -213,6 +213,114 @@ in
     (Env.addPrim E; primitiveDecs)
 end
 
+fun compileMatches (dec: CoreML.Dec.t) : unit =
+  let
+    fun goExp (exp: CoreML.Exp.t) : unit =
+      case CoreML.Exp.node exp of
+        CoreML.Exp.App (l, r) => (goExp l; goExp r)
+      | CoreML.Exp.Con _ => ()
+      | CoreML.Exp.Const _ => ()
+      | CoreML.Exp.EnterLeave (t, _) => goExp t
+      | CoreML.Exp.Handle {catch = _, handler, try} =>
+          (goExp try; goExp handler)
+      | CoreML.Exp.Lambda lambda => goLambda lambda
+      | CoreML.Exp.Let (decs, t) =>
+          (Vector.foreach (decs, compileMatches); goExp t)
+      | CoreML.Exp.List exps => Vector.foreach (exps, goExp)
+      | CoreML.Exp.PrimApp {args, ...} => Vector.foreach (args, goExp)
+      | CoreML.Exp.Raise t => goExp t
+      | CoreML.Exp.Record r => CoreML.Record.foreach (r, goExp)
+      | CoreML.Exp.Var _ => ()
+      | CoreML.Exp.Seq exps => Vector.foreach (exps, goExp)
+      | CoreML.Exp.Vector exps => Vector.foreach (exps, goExp)
+      | CoreML.Exp.Case _ => raise Fail "todo: handle this"
+    and goLambda lambda =
+      goExp (#body (CoreML.Lambda.dest lambda))
+  in
+    case dec of
+      CoreML.Dec.Datatype _ => ()
+    | CoreML.Dec.Exception _ => ()
+    | CoreML.Dec.Fun {decs, ...} =>
+        Vector.foreach (decs, fn {lambda, ...} => goLambda lambda)
+    | CoreML.Dec.Val {matchDiags, rvbs, vbs, ...} =>
+        ( Vector.foreach (rvbs, fn {lambda, ...} => goLambda lambda)
+        ; Vector.foreach (vbs, fn {exp, pat, ...} =>
+            (* TODO: check if pat and exp are exhaustive *)
+            goExp exp)
+        )
+  end
+
+(* datatype node =
+   App of t * t
+ | Case of {ctxt: unit -> Layout.t,
+            kind: string * string,
+            nest: string list,
+            matchDiags: {nonexhaustiveExn: Control.Elaborate.DiagDI.t,
+                         nonexhaustive: Control.Elaborate.DiagEIW.t,
+                         redundant: Control.Elaborate.DiagEIW.t},
+            noMatch: noMatch,
+            region: Region.t,
+            rules: {exp: t,
+                    layPat: (unit -> Layout.t) option,
+                    pat: Pat.t,
+                    regionPat: Region.t} vector,
+            test: t}
+ | Con of Con.t * Type.t vector
+ | Const of unit -> Const.t
+ | EnterLeave of t * SourceInfo.t
+ | Handle of {catch: Var.t * Type.t,
+              handler: t,
+              try: t}
+ | Lambda of lambda
+ | Let of dec vector * t
+ | List of t vector
+ | PrimApp of {args: t vector,
+               prim: Type.t Prim.t,
+               targs: Type.t vector}
+ | Raise of t
+ | Record of t Record.t
+ | Seq of t vector
+ | Var of (unit -> Var.t) * (unit -> Type.t vector)
+ | Vector of t vector *)
+(* structure Lambda:
+   sig
+      type t
+
+      val bogus: t
+      val dest: t -> {arg: Var.t,
+                      argType: Type.t,
+                      body: Exp.t,
+                      mayInline: bool}
+      val make: {arg: Var.t,
+                 argType: Type.t,
+                 body: Exp.t,
+                 mayInline: bool} -> t
+   end
+sharing type Exp.lambda = Lambda.t *)
+
+(* datatype t =
+   Datatype of {cons: {arg: Type.t option,
+                       con: Con.t} vector,
+                tycon: Tycon.t,
+                tyvars: Tyvar.t vector} vector
+ | Exception of {arg: Type.t option,
+                 con: Con.t}
+ | Fun of {decs: {lambda: Lambda.t,
+                  var: Var.t} vector,
+           tyvars: unit -> Tyvar.t vector}
+ | Val of {matchDiags: {nonexhaustiveExn: Control.Elaborate.DiagDI.t,
+                        nonexhaustive: Control.Elaborate.DiagEIW.t,
+                        redundant: Control.Elaborate.DiagEIW.t},
+           rvbs: {lambda: Lambda.t,
+                  var: Var.t} vector,
+           tyvars: unit -> Tyvar.t vector,
+           vbs: {ctxt: unit -> Layout.t,
+                 exp: Exp.t,
+                 layPat: unit -> Layout.t,
+                 nest: string list,
+                 pat: Pat.t,
+                 regionPat: Region.t} vector} *)
+
 val lexAndParseMLB: MLBString.t -> Ast.Basdec.t = fn input =>
   let
     val ast = MLBString.lexAndParseMLB input
@@ -225,11 +333,14 @@ fun parseAndElaborateMLB input =
   let
     val (E, decs) = Elaborate.elaborateMLB (input, {addPrim = addPrim})
     val _ = Control.checkForErrors ()
-    val decs = Vector.map (decs, #1)
-    val decs = Vector.concatV (Vector.map (decs, Vector.fromList))
-    val _ = Control.checkForErrors ()
+    fun checkMatches () =
+      Vector.foreach (decs, fn (decs, _) => List.foreach (decs, compileMatches))
+      before Control.checkForErrors ()
   in
-    ()
+    case Control.Elaborate.current (Control.Elaborate.nonexhaustiveMatch) of
+      Control.Elaborate.DiagEIW.Error => checkMatches ()
+    | Control.Elaborate.DiagEIW.Warn => checkMatches ()
+    | Control.Elaborate.DiagEIW.Ignore => ()
   end
 
 val escapeCode = "\^[[H\^["
