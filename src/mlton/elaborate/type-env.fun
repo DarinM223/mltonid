@@ -405,7 +405,7 @@ structure Spine:
                                 more: bool ref} Set.t}
 
       val newId = Counter.generator 0
-      
+
       fun new fields = T {id = newId (),
                           body = Set.singleton {fields = ref fields,
                                                 more = ref true}}
@@ -516,6 +516,8 @@ structure Type =
           fields: (Field.t * t) list,
           spine: Spine.t}
 
+      fun equals (T t1, T t2) = Set.equals (t1, t2)
+
       local
          fun make f (T s) = f (Set.! s)
       in
@@ -548,7 +550,7 @@ structure Type =
                                     ("spine", Spine.layout spine)]]
                   | GenFlexRecord {extra, fields, spine} =>
                        seq [str "GenFlex ",
-                            record [("extra", 
+                            record [("extra",
                                      List.layout
                                      (fn {field, tyvar} =>
                                       record [("field", Field.layout field),
@@ -1010,10 +1012,10 @@ structure Type =
       fun unresolvedString () = vector (unresolvedChar ())
 
       val traceCanUnify =
-         Trace.trace2 
+         Trace.trace2
          ("TypeEnv.Type.canUnify", layout, layout, Bool.layout)
 
-      fun canUnify arg = 
+      fun canUnify arg =
          traceCanUnify
          (fn (t, t') =>
           case (getTy t, getTy t') of
@@ -1414,7 +1416,7 @@ structure Type =
       datatype z = datatype UnifyResult.t
 
       val traceUnify =
-         Trace.trace2 
+         Trace.trace2
          ("TypeEnv.Type.unify", layout, layout,
           UnifyResult.layout:
           (LayoutPretty.t * LayoutPretty.t, unit) UnifyResult.t -> Layout.t)
@@ -1604,7 +1606,7 @@ structure Type =
                                      guard = fn _ => NONE,
                                      overload = no,
                                      record = record,
-                                     recursive = fn _ => 
+                                     recursive = fn _ =>
                                      Error.bug "TypeEnv.Type.unify.oneUnknown: recursive",
                                      unknown = unknown,
                                      var = no})
@@ -1821,7 +1823,7 @@ structure Type =
          (CharSize.all, fn s =>
           setSynonym (Tycon.char s,
                       Tycon.word (WordSize.fromBits (CharSize.bits s))))
-         
+
       val () =
          List.foreach
          (IntSize.all, fn s =>

@@ -29,6 +29,33 @@ structure Elaborate =
     (structure Ast = Ast structure CoreML = CoreML structure TypeEnv = TypeEnv)
 structure Env = Elaborate.Env
 
+structure MatchCompile =
+  MatchCompile
+    (open CoreML
+     structure Type =
+     struct open Type val deTuple = fn t => Vector.map (deRecord t, #2) end
+     structure Pat =
+     struct
+       datatype t =
+         T of {arg: (Var.t * Type.t) option, con: Con.t, targs: Type.t vector}
+     end
+     structure Exp =
+     struct
+       type t = unit
+
+       val casee = fn _ => ()
+       val const = fn _ => ()
+       val deref = fn _ => ()
+       val detuple = fn _ => ()
+       val devector = fn _ => ()
+       val equal = fn _ => ()
+       val iff = fn _ => ()
+       val lett = fn _ => ()
+       val var = fn _ => ()
+       val vectorLength = fn _ => ()
+     end
+     structure NestedPat = NestedPat(open CoreML))
+
 structure MLBString :>
 sig
   type t
@@ -324,18 +351,6 @@ fun setControlRefs () =
     Control.libTargetDir := mltonDir ^ "/targets/" ^ target
   end
 
-val defaultAnns =
-  [ "nonexhaustiveBind warn"
-  , "nonexhaustiveMatch warn"
-  , "redundantBind warn"
-  , "redundantMatch warn"
-  , "sequenceNonUnit warn"
-  , "warnUnused true"
-  ]
-
-fun setDefaultAnnotations anns =
-  List.foreach (anns, fn ann => ignore (Control.Elaborate.processDefault ann))
-
 fun main () =
   let
     val () = setControlRefs ()
@@ -348,19 +363,10 @@ fun main () =
     val time = ref (Time.now ())
     val errorFile = OS.FileSys.tmpName ()
   in
-    (* setDefaultAnnotations defaultAnns; *)
-    (* Control.defaults (); *)
-    case Control.Elaborate.current (Control.Elaborate.nonexhaustiveMatch) of
-      Control.Elaborate.DiagEIW.Error => print "Error\n"
-    | Control.Elaborate.DiagEIW.Warn => print "Warn\n"
-    | Control.Elaborate.DiagEIW.Ignore => print "Ignore\n";
-    (* Layout.outputl (Control.Elaborate.document {expert=false}, Out.error); *)
     Control.diagnosticWriter
     := SOME (fn layout => Layout.outputl (layout, Out.error));
     print "Initial elaboration...\n";
-    ( (* parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)) *)
-    ignore (Elaborate.elaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg), {addPrim = addPrim}))
-    ; ignore (Control.checkForErrors ())
+    ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
     ; clearScreen ()
     ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
     )

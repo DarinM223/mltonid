@@ -7,7 +7,7 @@
  * See the file MLton-LICENSE for details.
  *)
 
-signature CORE_ML_STRUCTS = 
+signature CORE_ML_STRUCTS =
    sig
       include ATOMS
       structure Type:
@@ -25,11 +25,13 @@ signature CORE_ML_STRUCTS =
                           var: Tyvar.t -> 'a} -> {destroy: unit -> unit,
                                                   hom: t -> 'a}
             val tuple: t vector -> t
+            val word: WordSize.t -> t
+            val equals: t * t -> bool
             val unit: t
          end
    end
 
-signature CORE_ML = 
+signature CORE_ML =
    sig
       include CORE_ML_STRUCTS
 

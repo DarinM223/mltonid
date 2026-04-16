@@ -7,12 +7,12 @@
  * See the file MLton-LICENSE for details.
  *)
 
-signature TYPE_ENV_STRUCTS = 
+signature TYPE_ENV_STRUCTS =
    sig
       include ATOMS
    end
 
-signature TYPE_ENV = 
+signature TYPE_ENV =
    sig
       include TYPE_ENV_STRUCTS
 
@@ -28,6 +28,7 @@ signature TYPE_ENV =
          sig
             include TYPE_OPS
 
+            val equals: t * t -> bool
             (* can two types be unified?  not side-effecting. *)
             val canUnify: t * t -> bool
             val checkTime:
