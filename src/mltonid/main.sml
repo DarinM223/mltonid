@@ -256,8 +256,17 @@ fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
           let
             open MatchCompile
           in
-            NestedPat.Record (SortedRecord.fromVector (Record.toVector
-              (Record.map (r, patToNestedPat))))
+            NestedPat.Record
+              (SortedRecord.fromVector
+                 (Vector.map
+                    ( CoreML.Type.deRecord ty
+                    , fn (f, t: CoreML.Type.t) =>
+                        ( f
+                        , case Record.peek (r, f) of
+                            NONE => NestedPat.make (NestedPat.Wild, ty)
+                          | SOME p => patToNestedPat p
+                        )
+                    )))
           end
       | CoreML.Pat.Var v => MatchCompile.NestedPat.Var v
       | CoreML.Pat.Vector ts =>
@@ -266,34 +275,6 @@ fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
   in
     MatchCompile.NestedPat.T {pat = pat, ty = ty}
   end
-
-(* datatype t = T of {pat: node, ty: Type.t}
-and node =
-   Con of {arg: t option,
-           con: Con.t,
-           targs: Type.t vector}
-  | Const of {const: Const.t,
-              isChar: bool,
-              isInt: bool}
-  | Layered of Var.t * t
-  | Or of t vector
-  | Record of t SortedRecord.t
-  | Var of Var.t
-  | Vector of t vector
-  | Wild *)
-
-(* datatype node =
-   Con of {arg: t option,
-           con: Con.t,
-           targs: Type.t vector}
- | Const of unit -> Const.t
- | Layered of Var.t * t
- | List of t vector
- | Or of t vector
- | Record of t Record.t
- | Var of Var.t
- | Vector of t vector
- | Wild *)
 
 local
   val {get = conTycon, set = setConTycon, ...} = Property.getSet
@@ -363,13 +344,14 @@ in
                   ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
                   ; ((), fn _ => NONE)
                   )
+              val dropOnlyExns =
+                case #nonexhaustiveExn matchDiags of
+                  Control.Elaborate.DiagDI.Default => false
+                | Control.Elaborate.DiagDI.Ignore => true
             in
-              case nonexhaustive {dropOnlyExns = true} of
+              case nonexhaustive {dropOnlyExns = dropOnlyExns} of
                 SOME layout =>
-                  (case
-                     Control.Elaborate.current
-                       (Control.Elaborate.nonexhaustiveMatch)
-                   of
+                  (case #nonexhaustive matchDiags of
                      Control.Elaborate.DiagEIW.Error =>
                        ignore (Control.error
                          ( region
