@@ -454,77 +454,6 @@ in
     end
 end
 
-(* datatype node =
-   App of t * t
- | Case of {ctxt: unit -> Layout.t,
-            kind: string * string,
-            nest: string list,
-            matchDiags: {nonexhaustiveExn: Control.Elaborate.DiagDI.t,
-                         nonexhaustive: Control.Elaborate.DiagEIW.t,
-                         redundant: Control.Elaborate.DiagEIW.t},
-            noMatch: noMatch,
-            region: Region.t,
-            rules: {exp: t,
-                    layPat: (unit -> Layout.t) option,
-                    pat: Pat.t,
-                    regionPat: Region.t} vector,
-            test: t}
- | Con of Con.t * Type.t vector
- | Const of unit -> Const.t
- | EnterLeave of t * SourceInfo.t
- | Handle of {catch: Var.t * Type.t,
-              handler: t,
-              try: t}
- | Lambda of lambda
- | Let of dec vector * t
- | List of t vector
- | PrimApp of {args: t vector,
-               prim: Type.t Prim.t,
-               targs: Type.t vector}
- | Raise of t
- | Record of t Record.t
- | Seq of t vector
- | Var of (unit -> Var.t) * (unit -> Type.t vector)
- | Vector of t vector *)
-(* structure Lambda:
-   sig
-      type t
-
-      val bogus: t
-      val dest: t -> {arg: Var.t,
-                      argType: Type.t,
-                      body: Exp.t,
-                      mayInline: bool}
-      val make: {arg: Var.t,
-                 argType: Type.t,
-                 body: Exp.t,
-                 mayInline: bool} -> t
-   end
-sharing type Exp.lambda = Lambda.t *)
-
-(* datatype t =
-   Datatype of {cons: {arg: Type.t option,
-                       con: Con.t} vector,
-                tycon: Tycon.t,
-                tyvars: Tyvar.t vector} vector
- | Exception of {arg: Type.t option,
-                 con: Con.t}
- | Fun of {decs: {lambda: Lambda.t,
-                  var: Var.t} vector,
-           tyvars: unit -> Tyvar.t vector}
- | Val of {matchDiags: {nonexhaustiveExn: Control.Elaborate.DiagDI.t,
-                        nonexhaustive: Control.Elaborate.DiagEIW.t,
-                        redundant: Control.Elaborate.DiagEIW.t},
-           rvbs: {lambda: Lambda.t,
-                  var: Var.t} vector,
-           tyvars: unit -> Tyvar.t vector,
-           vbs: {ctxt: unit -> Layout.t,
-                 exp: Exp.t,
-                 layPat: unit -> Layout.t,
-                 nest: string list,
-                 pat: Pat.t,
-                 regionPat: Region.t} vector} *)
-
 val lexAndParseMLB: MLBString.t -> Ast.Basdec.t = fn input =>
   let
     val ast = MLBString.lexAndParseMLB input
@@ -574,7 +503,7 @@ fun reelaborateForChanges lastTime mlb basdec =
       Time.> (File.modTime file, lastTime)
     fun reelaborateMLB mlb =
       ( if Option.isSome (HashTable.peek (Elaborate.psi, mlb)) then
-          print ("Reelaborating " ^ mlb ^ "\n")
+          printTopLeft ("Reelaborating " ^ mlb ^ "\n")
         else
           ()
       ; HashTable.remove (Elaborate.psi, mlb) handle _ => ()
@@ -634,9 +563,9 @@ fun diagnosticToFile file thunk =
 
 fun printStatus seconds =
   if ! Control.numErrors > 0 then
-    print ( (* inRed *)("Error (" ^ IntInf.toString seconds ^ "s):\n"))
+    print (inRed ("Error (" ^ IntInf.toString seconds ^ "s):\n"))
   else
-    print ( (* inGreen *)("Success (" ^ IntInf.toString seconds ^ "s):\n"))
+    print (inGreen ("Success (" ^ IntInf.toString seconds ^ "s):\n"))
 
 fun setControlRefs () =
   let
@@ -674,7 +603,7 @@ fun main () =
       case CommandLine.arguments () of
         [arg] => arg
       | _ => (print "Expected MLB file path argument\n"; raise InvalidArgument)
-    (* val () = clearScreen () *)
+    val () = clearScreen ()
     val time = ref (Time.now ())
     val errorFile = OS.FileSys.tmpName ()
   in
@@ -682,7 +611,7 @@ fun main () =
     := SOME (fn layout => Layout.outputl (layout, Out.error));
     print "Initial elaboration...\n";
     ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
-    (* ; clearScreen () *)
+    ; clearScreen ()
     ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
     )
     handle
@@ -708,7 +637,8 @@ fun main () =
         val seconds = Time.toSeconds (Time.- (Time.now (), startTime))
       in
         if changed then
-          ( (* clearScreen () ; *) printStatus seconds
+          ( clearScreen ()
+          ; printStatus seconds
           ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
           )
         else
