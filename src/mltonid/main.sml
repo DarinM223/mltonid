@@ -284,7 +284,72 @@ local
 in
   fun compileMatches (dec: CoreML.Dec.t) : unit =
     let
-      fun goExp (exp: CoreML.Exp.t) : unit =
+      fun goCase {exp, matchDiags, rules, test, noMatch, region, ctxt} =
+        let
+          val caseType = CoreML.Exp.ty exp
+          val cases = Vector.map (rules, fn {exp, pat, ...} =>
+            (goExp exp; (patToNestedPat pat, fn _ => fn _ => ())))
+
+          fun raiseExn () =
+            let
+              val e = CoreML.Var.newNoname ()
+              val pat =
+                MatchCompile.NestedPat.make
+                  (MatchCompile.NestedPat.Var e, CoreML.Exp.ty test)
+            in
+              Vector.concat [cases, Vector.new1 (pat, fn _ => fn _ => ())]
+            end
+          val cases =
+            let
+              datatype z = datatype CoreML.Exp.noMatch
+            in
+              case noMatch of
+                Impossible => cases
+              | RaiseAgain => raiseExn ()
+              | RaiseBind => raiseExn ()
+              | RaiseMatch => raiseExn ()
+            end
+          val testType = CoreML.Exp.ty test
+          val test = CoreML.Var.newNoname ()
+          val ((), nonexhaustive) =
+            MatchCompile.matchCompile
+              { caseType = caseType
+              , cases = cases
+              , conTycon = conTycon
+              , test = test
+              , testType = testType
+              , tyconCons = tyconCons
+              }
+            handle Fail text =>
+              ( print ("Match compile error: " ^ text ^ "\n")
+              ; print ("In case: " ^ "\n")
+              ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
+              ; ((), fn _ => NONE)
+              )
+          val dropOnlyExns =
+            case #nonexhaustiveExn matchDiags of
+              Control.Elaborate.DiagDI.Default => false
+            | Control.Elaborate.DiagDI.Ignore => true
+        in
+          case nonexhaustive {dropOnlyExns = dropOnlyExns} of
+            SOME layout =>
+              (case #nonexhaustive matchDiags of
+                 Control.Elaborate.DiagEIW.Error =>
+                   ignore (Control.error
+                     ( region
+                     , Layout.seq [Layout.str "Match compile error: ", layout]
+                     , ctxt ()
+                     ))
+               | Control.Elaborate.DiagEIW.Warn =>
+                   ignore (Control.warning
+                     ( region
+                     , Layout.seq [Layout.str "Match compile warning: ", layout]
+                     , ctxt ()
+                     ))
+               | Control.Elaborate.DiagEIW.Ignore => ())
+          | NONE => ()
+        end
+      and goExp (exp: CoreML.Exp.t) : unit =
         case CoreML.Exp.node exp of
           CoreML.Exp.App (l, r) => (goExp l; goExp r)
         | CoreML.Exp.Con _ => ()
@@ -303,72 +368,15 @@ in
         | CoreML.Exp.Seq exps => Vector.foreach (exps, goExp)
         | CoreML.Exp.Vector exps => Vector.foreach (exps, goExp)
         | CoreML.Exp.Case {matchDiags, rules, test, noMatch, region, ctxt, ...} =>
-            let
-              val caseType = CoreML.Exp.ty exp
-              val cases = Vector.map (rules, fn {exp, pat, ...} =>
-                (goExp exp; (patToNestedPat pat, fn _ => fn _ => ())))
-
-              fun raiseExn () =
-                let
-                  val e = CoreML.Var.newNoname ()
-                  val pat =
-                    MatchCompile.NestedPat.make
-                      (MatchCompile.NestedPat.Var e, CoreML.Exp.ty test)
-                in
-                  Vector.concat [cases, Vector.new1 (pat, fn _ => fn _ => ())]
-                end
-              val cases =
-                let
-                  datatype z = datatype CoreML.Exp.noMatch
-                in
-                  case noMatch of
-                    Impossible => cases
-                  | RaiseAgain => raiseExn ()
-                  | RaiseBind => raiseExn ()
-                  | RaiseMatch => raiseExn ()
-                end
-              val testType = CoreML.Exp.ty test
-              val test = CoreML.Var.newNoname ()
-              val ((), nonexhaustive) =
-                MatchCompile.matchCompile
-                  { caseType = caseType
-                  , cases = cases
-                  , conTycon = conTycon
-                  , test = test
-                  , testType = testType
-                  , tyconCons = tyconCons
-                  }
-                handle Fail text =>
-                  ( print ("Match compile error: " ^ text ^ "\n")
-                  ; print ("In case: " ^ "\n")
-                  ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
-                  ; ((), fn _ => NONE)
-                  )
-              val dropOnlyExns =
-                case #nonexhaustiveExn matchDiags of
-                  Control.Elaborate.DiagDI.Default => false
-                | Control.Elaborate.DiagDI.Ignore => true
-            in
-              case nonexhaustive {dropOnlyExns = dropOnlyExns} of
-                SOME layout =>
-                  (case #nonexhaustive matchDiags of
-                     Control.Elaborate.DiagEIW.Error =>
-                       ignore (Control.error
-                         ( region
-                         , Layout.seq
-                             [Layout.str "Match compile error: ", layout]
-                         , ctxt ()
-                         ))
-                   | Control.Elaborate.DiagEIW.Warn =>
-                       ignore (Control.warning
-                         ( region
-                         , Layout.seq
-                             [Layout.str "Match compile warning: ", layout]
-                         , ctxt ()
-                         ))
-                   | Control.Elaborate.DiagEIW.Ignore => ())
-              | NONE => ()
-            end
+            goCase
+              { exp = exp
+              , matchDiags = matchDiags
+              , rules = rules
+              , test = test
+              , noMatch = noMatch
+              , region = region
+              , ctxt = ctxt
+              }
       and goLambda lambda =
         goExp (#body (CoreML.Lambda.dest lambda))
     in
@@ -423,11 +431,25 @@ in
       | CoreML.Dec.Exception {con, ...} => setConTycon (con, CoreML.Tycon.exn)
       | CoreML.Dec.Fun {decs, ...} =>
           Vector.foreach (decs, fn {lambda, ...} => goLambda lambda)
-      | CoreML.Dec.Val {matchDiags, rvbs, vbs, ...} =>
+      | CoreML.Dec.Val {matchDiags, rvbs, vbs, tyvars} =>
           ( Vector.foreach (rvbs, fn {lambda, ...} => goLambda lambda)
-          ; Vector.foreach (vbs, fn {exp, pat, ...} =>
-              (* TODO: check if pat and exp are exhaustive *)
-              goExp exp)
+          ; Vector.foreach (vbs, fn {ctxt, exp, pat, layPat, regionPat, ...} =>
+              ( goCase
+                  { exp = exp
+                  , matchDiags = matchDiags
+                  , rules = Vector.new1
+                      { exp = exp
+                      , layPat = SOME layPat
+                      , pat = pat
+                      , regionPat = regionPat
+                      }
+                  , test = exp
+                  , noMatch = CoreML.Exp.RaiseBind
+                  , region = regionPat
+                  , ctxt = ctxt
+                  }
+              ; goExp exp
+              ))
           )
     end
 end
