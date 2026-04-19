@@ -213,6 +213,247 @@ in
     (Env.addPrim E; primitiveDecs)
 end
 
+fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
+  let
+    val ty = CoreML.Pat.ty pat
+    val pat =
+      case CoreML.Pat.node pat of
+        CoreML.Pat.Con {arg, con, targs} =>
+          MatchCompile.NestedPat.Con
+            {arg = Option.map (arg, patToNestedPat), con = con, targs = targs}
+      | CoreML.Pat.Const const =>
+          let
+            val const = const ()
+          in
+            MatchCompile.NestedPat.Const
+              { const = const
+              , isChar = CoreML.Type.isCharX ty
+              , isInt = CoreML.Type.isInt ty
+              }
+          end
+      | CoreML.Pat.Layered (v, t) =>
+          MatchCompile.NestedPat.Layered (v, patToNestedPat t)
+      | CoreML.Pat.List ts =>
+          let
+            open MatchCompile
+            val targs = #2 (valOf (CoreML.Type.deConOpt ty))
+          in
+            Vector.fold
+              ( ts
+              , NestedPat.Con {arg = NONE, con = CoreML.Con.nill, targs = targs}
+              , fn (p, np) =>
+                  NestedPat.Con
+                    { arg = SOME (NestedPat.tuple (Vector.new2
+                        (patToNestedPat p, NestedPat.make (np, ty))))
+                    , con = CoreML.Con.cons
+                    , targs = targs
+                    }
+              )
+          end
+      | CoreML.Pat.Or ts =>
+          MatchCompile.NestedPat.Or (Vector.map (ts, patToNestedPat))
+      | CoreML.Pat.Record r =>
+          let
+            open MatchCompile
+          in
+            NestedPat.Record
+              (SortedRecord.fromVector
+                 (Vector.map
+                    ( CoreML.Type.deRecord ty
+                    , fn (f, t: CoreML.Type.t) =>
+                        ( f
+                        , case Record.peek (r, f) of
+                            NONE => NestedPat.make (NestedPat.Wild, ty)
+                          | SOME p => patToNestedPat p
+                        )
+                    )))
+          end
+      | CoreML.Pat.Var v => MatchCompile.NestedPat.Var v
+      | CoreML.Pat.Vector ts =>
+          MatchCompile.NestedPat.Vector (Vector.map (ts, patToNestedPat))
+      | CoreML.Pat.Wild => MatchCompile.NestedPat.Wild
+  in
+    MatchCompile.NestedPat.T {pat = pat, ty = ty}
+  end
+
+local
+  val {get = conTycon, set = setConTycon, ...} = Property.getSet
+    (CoreML.Con.plist, Property.initRaise ("conTycon", CoreML.Con.layout))
+  val {get = tyconCons, set = setTyconCons, ...} = Property.getSet
+    (CoreML.Tycon.plist, Property.initRaise ("tyconCons", CoreML.Tycon.layout))
+in
+  fun compileMatches (dec: CoreML.Dec.t) : unit =
+    let
+      fun goCase {exp, matchDiags, rules, test, noMatch, region, ctxt} =
+        let
+          val caseType = CoreML.Exp.ty exp
+          val cases = Vector.map (rules, fn {exp, pat, ...} =>
+            (goExp exp; (patToNestedPat pat, fn _ => fn _ => ())))
+
+          fun raiseExn () =
+            let
+              val e = CoreML.Var.newNoname ()
+              val pat =
+                MatchCompile.NestedPat.make
+                  (MatchCompile.NestedPat.Var e, CoreML.Exp.ty test)
+            in
+              Vector.concat [cases, Vector.new1 (pat, fn _ => fn _ => ())]
+            end
+          val cases =
+            let
+              datatype z = datatype CoreML.Exp.noMatch
+            in
+              case noMatch of
+                Impossible => cases
+              | RaiseAgain => raiseExn ()
+              | RaiseBind => raiseExn ()
+              | RaiseMatch => raiseExn ()
+            end
+          val testType = CoreML.Exp.ty test
+          val test = CoreML.Var.newNoname ()
+          val ((), nonexhaustive) =
+            MatchCompile.matchCompile
+              { caseType = caseType
+              , cases = cases
+              , conTycon = conTycon
+              , test = test
+              , testType = testType
+              , tyconCons = tyconCons
+              }
+            handle Fail text =>
+              ( print ("Match compile error: " ^ text ^ "\n")
+              ; print ("In case: " ^ "\n")
+              ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
+              ; ((), fn _ => NONE)
+              )
+          val dropOnlyExns =
+            case #nonexhaustiveExn matchDiags of
+              Control.Elaborate.DiagDI.Default => false
+            | Control.Elaborate.DiagDI.Ignore => true
+        in
+          case nonexhaustive {dropOnlyExns = dropOnlyExns} of
+            SOME layout =>
+              (case #nonexhaustive matchDiags of
+                 Control.Elaborate.DiagEIW.Error =>
+                   ignore (Control.error
+                     ( region
+                     , Layout.seq [Layout.str "Match compile error: ", layout]
+                     , ctxt ()
+                     ))
+               | Control.Elaborate.DiagEIW.Warn =>
+                   ignore (Control.warning
+                     ( region
+                     , Layout.seq [Layout.str "Match compile warning: ", layout]
+                     , ctxt ()
+                     ))
+               | Control.Elaborate.DiagEIW.Ignore => ())
+          | NONE => ()
+        end
+      and goExp (exp: CoreML.Exp.t) : unit =
+        case CoreML.Exp.node exp of
+          CoreML.Exp.App (l, r) => (goExp l; goExp r)
+        | CoreML.Exp.Con _ => ()
+        | CoreML.Exp.Const _ => ()
+        | CoreML.Exp.EnterLeave (t, _) => goExp t
+        | CoreML.Exp.Handle {catch = _, handler, try} =>
+            (goExp try; goExp handler)
+        | CoreML.Exp.Lambda lambda => goLambda lambda
+        | CoreML.Exp.Let (decs, t) =>
+            (Vector.foreach (decs, compileMatches); goExp t)
+        | CoreML.Exp.List exps => Vector.foreach (exps, goExp)
+        | CoreML.Exp.PrimApp {args, ...} => Vector.foreach (args, goExp)
+        | CoreML.Exp.Raise t => goExp t
+        | CoreML.Exp.Record r => CoreML.Record.foreach (r, goExp)
+        | CoreML.Exp.Var _ => ()
+        | CoreML.Exp.Seq exps => Vector.foreach (exps, goExp)
+        | CoreML.Exp.Vector exps => Vector.foreach (exps, goExp)
+        | CoreML.Exp.Case {matchDiags, rules, test, noMatch, region, ctxt, ...} =>
+            goCase
+              { exp = exp
+              , matchDiags = matchDiags
+              , rules = rules
+              , test = test
+              , noMatch = noMatch
+              , region = region
+              , ctxt = ctxt
+              }
+      and goLambda lambda =
+        goExp (#body (CoreML.Lambda.dest lambda))
+    in
+      case dec of
+        CoreML.Dec.Datatype dbs =>
+          let
+            val frees: CoreML.Tyvar.t list ref = ref []
+            val _ = Vector.foreach (dbs, fn {cons, tyvars, ...} =>
+              let
+                fun var (a: CoreML.Tyvar.t) : unit =
+                  let
+                    fun eq a' = CoreML.Tyvar.equals (a, a')
+                  in
+                    if
+                      Vector.exists (tyvars, eq) orelse List.exists (!frees, eq)
+                    then ()
+                    else List.push (frees, a)
+                  end
+                val {destroy, hom} =
+                  CoreML.Type.makeHom {con = fn _ => (), var = var}
+                val _ = Vector.foreach (cons, fn {arg, ...} =>
+                  Option.app (arg, hom))
+                val _ = destroy ()
+              in
+                ()
+              end)
+            val frees = !frees
+            val dbs =
+              if List.isEmpty frees then
+                dbs
+              else
+                let
+                  val frees = Vector.fromList frees
+                in
+                  Vector.map (dbs, fn {cons, tycon, tyvars} =>
+                    { cons = cons
+                    , tycon = tycon
+                    , tyvars = Vector.concat [frees, tyvars]
+                    })
+                end
+          in
+            Vector.foreach (dbs, fn {cons, tycon, tyvars} =>
+              let
+                val _ = setTyconCons (tycon, Vector.map (cons, fn {arg, con} =>
+                  {con = con, hasArg = isSome arg}))
+                val cons = Vector.map (cons, fn {arg, con} =>
+                  (setConTycon (con, tycon); {arg = arg, con = con}))
+              in
+                ()
+              end)
+          end
+      | CoreML.Dec.Exception {con, ...} => setConTycon (con, CoreML.Tycon.exn)
+      | CoreML.Dec.Fun {decs, ...} =>
+          Vector.foreach (decs, fn {lambda, ...} => goLambda lambda)
+      | CoreML.Dec.Val {matchDiags, rvbs, vbs, tyvars} =>
+          ( Vector.foreach (rvbs, fn {lambda, ...} => goLambda lambda)
+          ; Vector.foreach (vbs, fn {ctxt, exp, pat, layPat, regionPat, ...} =>
+              ( goCase
+                  { exp = exp
+                  , matchDiags = matchDiags
+                  , rules = Vector.new1
+                      { exp = exp
+                      , layPat = SOME layPat
+                      , pat = pat
+                      , regionPat = regionPat
+                      }
+                  , test = exp
+                  , noMatch = CoreML.Exp.RaiseBind
+                  , region = regionPat
+                  , ctxt = ctxt
+                  }
+              ; goExp exp
+              ))
+          )
+    end
+end
+
 val lexAndParseMLB: MLBString.t -> Ast.Basdec.t = fn input =>
   let
     val ast = MLBString.lexAndParseMLB input
@@ -225,11 +466,14 @@ fun parseAndElaborateMLB input =
   let
     val (E, decs) = Elaborate.elaborateMLB (input, {addPrim = addPrim})
     val _ = Control.checkForErrors ()
-    val decs = Vector.map (decs, #1)
-    val decs = Vector.concatV (Vector.map (decs, Vector.fromList))
-    val _ = Control.checkForErrors ()
+    fun checkMatches () =
+      Vector.foreach (decs, fn (decs, _) => List.foreach (decs, compileMatches))
+      before Control.checkForErrors ()
   in
-    ()
+    case Control.Elaborate.current (Control.Elaborate.nonexhaustiveMatch) of
+      Control.Elaborate.DiagEIW.Error => checkMatches ()
+    | Control.Elaborate.DiagEIW.Warn => checkMatches ()
+    | Control.Elaborate.DiagEIW.Ignore => ()
   end
 
 val escapeCode = "\^[[H\^["
@@ -370,7 +614,9 @@ fun main () =
     ; clearScreen ()
     ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
     )
-    handle _ => ();
+    handle
+      Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
+    | _ => ();
     while true do
       let
         val () = Control.numErrors := 0
@@ -385,7 +631,9 @@ fun main () =
               else ();
               changed
             end)
-          handle _ => true
+          handle
+            Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
+          | _ => true
         val seconds = Time.toSeconds (Time.- (Time.now (), startTime))
       in
         if changed then
