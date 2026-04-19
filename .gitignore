@@ -2,3 +2,5 @@
 build.sml
 save
 errors.txt
+.cm
+*.amd64-linux

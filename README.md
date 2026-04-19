@@ -1,6 +1,36 @@
 mltonid
 =======
 
+Building:
+---------
+
+Building with MLton:
+
+```
+mlton mltonid.mlb
+```
+
+Building with Poly/ML:
+
+```
+./build_polyml.sh
+polyc build.sml -o mltonid
+```
+
+MLton files are required to be in a standard location like `/usr/local/lib/mlton`.
+
+Building with SML/NJ:
+
+```
+ml-build mltonid.cm Main.main mltonid
+sml @SMLload=mltonid.amd64-linux <args>
+```
+
+Where amd64-linux is replaced with your architecture.
+
+Running:
+--------
+
 Environment variables expected:
 
 | Required | Variable      | Value |

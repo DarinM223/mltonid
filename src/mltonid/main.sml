@@ -595,56 +595,65 @@ fun setControlRefs () =
     Control.libTargetDir := mltonDir ^ "/targets/" ^ target
   end
 
-fun main () =
-  let
-    val () = setControlRefs ()
-    exception InvalidArgument
-    val arg =
-      case CommandLine.arguments () of
-        [arg] => arg
-      | _ => (print "Expected MLB file path argument\n"; raise InvalidArgument)
-    val () = clearScreen ()
-    val time = ref (Time.now ())
-    val errorFile = OS.FileSys.tmpName ()
-  in
-    Control.diagnosticWriter
-    := SOME (fn layout => Layout.outputl (layout, Out.error));
-    print "Initial elaboration...\n";
-    ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
-    ; clearScreen ()
-    ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
-    )
-    handle
-      Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
-    | _ => ();
-    while true do
-      let
-        val () = Control.numErrors := 0
-        val startTime = Time.now ()
-        val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
-        val changed =
-          diagnosticToFile errorFile (fn () =>
-            let
-              val changed = reelaborateForChanges (!time) arg basis
-            in
-              if changed then (time := Time.now (); parseAndElaborateMLB basis)
-              else ();
-              changed
-            end)
-          handle
-            Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
-          | _ => true
-        val seconds = Time.toSeconds (Time.- (Time.now (), startTime))
-      in
-        if changed then
-          ( clearScreen ()
-          ; printStatus seconds
-          ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
-          )
-        else
-          OS.Process.sleep (Time.seconds 1)
-      end
-      handle _ => print "Error parsing MLB\n"
-  end
+structure Main =
+struct
+  fun main _ =
+    let
+      val () = setControlRefs ()
+      exception InvalidArgument
+      val arg =
+        case CommandLine.arguments () of
+          [arg] => arg
+        | _ =>
+            (print "Expected MLB file path argument\n"; raise InvalidArgument)
+      val () = clearScreen ()
+      val time = ref (Time.now ())
+      val errorFile = OS.FileSys.tmpName ()
+    in
+      Control.diagnosticWriter
+      := SOME (fn layout => Layout.outputl (layout, Out.error));
+      print "Initial elaboration...\n";
+      ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
+      ; clearScreen ()
+      ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
+      )
+      handle
+        Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
+      | _ => ();
+      while true do
+        let
+          val () = Control.numErrors := 0
+          val startTime = Time.now ()
+          val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
+          val changed =
+            diagnosticToFile errorFile (fn () =>
+              let
+                val changed = reelaborateForChanges (!time) arg basis
+              in
+                if changed then
+                  (time := Time.now (); parseAndElaborateMLB basis)
+                else
+                  ();
+                changed
+              end)
+            handle
+              Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
+            | _ => true
+          val seconds = Time.toSeconds (Time.- (Time.now (), startTime))
+        in
+          if changed then
+            ( clearScreen ()
+            ; printStatus seconds
+            ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
+            )
+          else
+            OS.Process.sleep (Time.seconds 1)
+        end
+        handle _ => print "Error parsing MLB\n";
+      OS.Process.success
+    end
+end
 
+fun main () =
+  ignore (Main.main ("", []))
 val () = if MLton.isMLton then main () else ()

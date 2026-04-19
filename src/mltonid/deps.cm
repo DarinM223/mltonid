@@ -1,0 +1,5 @@
+group
+  structure TextIO
+  structure Posix
+is
+  $/basis.cm

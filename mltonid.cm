@@ -1,3 +1,2 @@
 Group is
-  $/basis.cm
-  $/smlnj-lib.cm
+  ./src/mltonid/sources.cm
