@@ -1,0 +1,9 @@
+../lib/mlton/sources.mlb
+../mlton/ast/sources.mlb
+../mlton/atoms/sources.mlb
+../mlton/control/sources.mlb
+../mlton/core-ml/sources.mlb
+../mlton/elaborate/sources.mlb
+../mlton/match-compile/sources.mlb
+../mlton/front-end/sources.mlb
+structs.sml

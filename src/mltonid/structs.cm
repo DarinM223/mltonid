@@ -1,0 +1,23 @@
+group
+  structure Atoms
+  structure Symbol
+  structure Ast
+  structure TypeEnv
+  structure CoreML
+  structure FrontEnd
+  structure MLBFrontEnd
+  structure Elaborate
+  structure Env
+  structure MatchCompile
+  structure MLBString
+  structure Prim
+is
+  ../lib/mlton/sources.cm
+  ../mlton/ast/sources.cm
+  ../mlton/atoms/sources.cm
+  ../mlton/control/sources.cm
+  ../mlton/core-ml/sources.cm
+  ../mlton/elaborate/sources.cm
+  ../mlton/match-compile/sources.cm
+  ../mlton/front-end/sources.cm
+  structs.sml
