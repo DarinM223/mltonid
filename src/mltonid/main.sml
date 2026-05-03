@@ -1,11 +1,14 @@
+  val {hom = loopTy, ...} =
+    CoreML.Type.makeHom {con = TypeEnv.Type.con, var = TypeEnv.Type.var}
 fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
   let
     val ty = CoreML.Pat.ty pat
+    val ty' = loopTy ty
     val pat =
       case CoreML.Pat.node pat of
         CoreML.Pat.Con {arg, con, targs} =>
           MatchCompile.NestedPat.Con
-            {arg = Option.map (arg, patToNestedPat), con = con, targs = targs}
+            {arg = Option.map (arg, patToNestedPat), con = con, targs = Vector.map (targs, loopTy)}
       | CoreML.Pat.Const const =>
           let
             val const = const ()
@@ -21,7 +24,7 @@ fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
       | CoreML.Pat.List ts =>
           let
             open MatchCompile
-            val targs = #2 (valOf (CoreML.Type.deConOpt ty))
+            val targs = Vector.map(#2 (valOf (CoreML.Type.deConOpt ty)), loopTy)
           in
             Vector.fold
               ( ts
@@ -29,7 +32,7 @@ fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
               , fn (p, np) =>
                   NestedPat.Con
                     { arg = SOME (NestedPat.tuple (Vector.new2
-                        (patToNestedPat p, NestedPat.make (np, ty))))
+                        (patToNestedPat p, NestedPat.make (np, ty'))))
                     , con = CoreML.Con.cons
                     , targs = targs
                     }
@@ -45,10 +48,10 @@ fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
               (SortedRecord.fromVector
                  (Vector.map
                     ( CoreML.Type.deRecord ty
-                    , fn (f, t: CoreML.Type.t) =>
+                    , fn (f: Field.t, t: CoreML.Type.t) =>
                         ( f
                         , case Record.peek (r, f) of
-                            NONE => NestedPat.make (NestedPat.Wild, ty)
+                            NONE => NestedPat.make (NestedPat.Wild, loopTy t)
                           | SOME p => patToNestedPat p
                         )
                     )))
@@ -58,20 +61,28 @@ fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
           MatchCompile.NestedPat.Vector (Vector.map (ts, patToNestedPat))
       | CoreML.Pat.Wild => MatchCompile.NestedPat.Wild
   in
-    MatchCompile.NestedPat.T {pat = pat, ty = ty}
+    MatchCompile.NestedPat.make (pat, ty')
   end
 
 local
   val {get = conTycon, set = setConTycon, ...} = Property.getSet
     (CoreML.Con.plist, Property.initRaise ("conTycon", CoreML.Con.layout))
+  val conTycon = Trace.trace ("Defunctorize.conTycon", CoreML.Con.layout, CoreML.Tycon.layout) conTycon
+  val setConTycon =
+         Trace.trace2
+         ("Defunctorize.setConTycon",
+          CoreML.Con.layout, CoreML.Tycon.layout, Unit.layout)
+         setConTycon
   val {get = tyconCons, set = setTyconCons, ...} = Property.getSet
     (CoreML.Tycon.plist, Property.initRaise ("tyconCons", CoreML.Tycon.layout))
+  fun recLayout {con, hasArg} = Layout.record [("con", CoreML.Con.layout con), ("hasArg", Bool.layout hasArg)]
+  val tyconCons = Trace.trace ("Defunctorize.tyconCons", CoreML.Tycon.layout, Vector.layout recLayout) tyconCons
 in
   fun compileMatches (dec: CoreML.Dec.t) : unit =
     let
       fun goCase {exp, matchDiags, rules, test, noMatch, region, ctxt} =
         let
-          val caseType = CoreML.Exp.ty exp
+          val caseType = loopTy (CoreML.Exp.ty exp)
           val cases = Vector.map (rules, fn {exp, pat, ...} =>
             (goExp exp; (patToNestedPat pat, fn _ => fn _ => ())))
 
@@ -89,20 +100,36 @@ in
               datatype z = datatype CoreML.Exp.noMatch
             in
               case noMatch of
-                Impossible => cases
+                Impossible =>
+                  ( print ("Impossible" ^ "\n")
+                  ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
+                  ; cases
+                  )
               | RaiseAgain => raiseExn ()
               | RaiseBind => raiseExn ()
-              | RaiseMatch => raiseExn ()
+              | RaiseMatch =>
+                  ( print ("RaiseMatch" ^ "\n")
+                  ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
+                  ; let val cases = raiseExn ()
+                     in
+                      Layout.outputl (Vector.layout MatchCompile.NestedPat.layout (Vector.map (cases, #1)), Out.error);
+                      cases
+                     end
+                  )
             end
-          val testType = CoreML.Exp.ty test
+          val testType = loopTy (CoreML.Exp.ty test)
+          val () = print ("Case Type: " ^ "\n")
+          val () = Layout.outputl (CoreML.Type.layout caseType, Out.error)
+          val () = print ("Test Type: " ^ "\n")
+          val () = Layout.outputl (CoreML.Type.layout testType, Out.error)
           val test = CoreML.Var.newNoname ()
           val ((), nonexhaustive) =
             MatchCompile.matchCompile
-              { caseType = caseType
+              { caseType = CoreML.Type.bool
               , cases = cases
               , conTycon = conTycon
               , test = test
-              , testType = testType
+              , testType = CoreML.Type.bool
               , tyconCons = tyconCons
               }
             handle Fail text =>
@@ -116,7 +143,7 @@ in
               Control.Elaborate.DiagDI.Default => false
             | Control.Elaborate.DiagDI.Ignore => true
         in
-          case nonexhaustive {dropOnlyExns = dropOnlyExns} of
+          case nonexhaustive {dropOnlyExns = false} of
             SOME layout =>
               (case #nonexhaustive matchDiags of
                  Control.Elaborate.DiagEIW.Error =>
@@ -208,7 +235,7 @@ in
                 val _ = setTyconCons (tycon, Vector.map (cons, fn {arg, con} =>
                   {con = con, hasArg = isSome arg}))
                 val cons = Vector.map (cons, fn {arg, con} =>
-                  (setConTycon (con, tycon); {arg = arg, con = con}))
+                  (setConTycon (con, tycon); {arg = Option.map (arg, loopTy), con = con}))
               in
                 ()
               end)
@@ -263,24 +290,24 @@ fun parseAndElaborateMLB input =
 
 val escapeCode = "\^[[H\^["
 
-fun clearScreen () =
-  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
-  in TextIO.output (strm, escapeCode ^ "c"); TextIO.closeOut strm
-  end
+fun clearScreen () = ()
+(* let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+in TextIO.output (strm, escapeCode ^ "c"); TextIO.closeOut strm
+end *)
 
-fun printTopLeft text =
-  let
-    val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
-  in
-    (* pad X by 15 spaces so that it is to the right of the status line *)
-    TextIO.output (strm, escapeCode ^ "[1;15H" ^ text);
-    TextIO.closeOut strm
-  end
+fun printTopLeft text = print text
+(* let
+  val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+in
+  (* pad X by 15 spaces so that it is to the right of the status line *)
+  TextIO.output (strm, escapeCode ^ "[1;15H" ^ text);
+  TextIO.closeOut strm
+end *)
 
-fun inGreen text =
-  escapeCode ^ "[32m" ^ text ^ escapeCode ^ "[0m"
-fun inRed text =
-  escapeCode ^ "[31m" ^ text ^ escapeCode ^ "[0m"
+fun inGreen text = text
+  (* escapeCode ^ "[32m" ^ text ^ escapeCode ^ "[0m" *)
+fun inRed text = text
+  (* escapeCode ^ "[31m" ^ text ^ escapeCode ^ "[0m" *)
 
 fun reelaborateForChanges lastTime mlb basdec =
   let
@@ -384,6 +411,8 @@ structure Main =
 struct
   fun main _ =
     let
+      (* val () = Trace.Immediate.on ["Defunctorize.conTycon", "Defunctorize.tyconCons", "Defunctorize.setConTycon"] *)
+      val () = Trace.Immediate.all ()
       val () = setControlRefs ()
       exception InvalidArgument
       val arg =
@@ -442,3 +471,7 @@ end
 fun main () =
   ignore (Main.main ("", []))
 val () = if MLton.isMLton then main () else ()
+
+(* fun a (SOME 1, SOME 2) = NONE *)
+fun a (1, 2) = (3, 4)
+
