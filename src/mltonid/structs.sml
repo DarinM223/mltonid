@@ -41,18 +41,28 @@ structure MatchCompile =
      end
      structure Exp =
      struct
-       type t = unit
+       type t = Var.t * Type.t
 
-       val casee = fn _ => ()
-       val const = fn _ => ()
-       val deref = fn _ => ()
-       val detuple = fn _ => ()
-       val devector = fn _ => ()
-       val equal = fn _ => ()
-       val iff = fn _ => ()
-       val lett = fn _ => ()
-       val var = fn _ => ()
-       val vectorLength = fn _ => ()
+       val def = (Var.bogus, Type.unit)
+
+       val casee = fn _ => def
+       val const = fn _ => def
+       val deref = fn _ => def
+       val detuple = fn {tuple = (_, tuple), body} =>
+         body (Vector.map (Type.deTuple tuple, fn ty =>
+           (CoreML.Var.newNoname (), ty)))
+       val devector = fn {vector = (_, vec), length, body} =>
+         let
+           val vec = TypeEnv.Type.deVector vec
+         in
+           body (Vector.tabulate (length, fn _ =>
+             (CoreML.Var.newNoname (), vec)))
+         end
+       val equal = fn _ => def
+       val iff = fn _ => def
+       val lett = fn _ => def
+       val var = fn v => v
+       val vectorLength = fn _ => def
      end
      structure NestedPat = NestedPat(open CoreML))
 
