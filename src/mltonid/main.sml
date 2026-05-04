@@ -125,7 +125,7 @@ in
               Control.Elaborate.DiagDI.Default => false
             | Control.Elaborate.DiagDI.Ignore => true
         in
-          case nonexhaustive {dropOnlyExns = false} of
+          case nonexhaustive {dropOnlyExns = dropOnlyExns} of
             SOME layout =>
               (case #nonexhaustive matchDiags of
                  Control.Elaborate.DiagEIW.Error =>
