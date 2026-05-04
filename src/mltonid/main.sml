@@ -1,96 +1,80 @@
-val {hom = loopTy, ...} =
-  CoreML.Type.makeHom {con = TypeEnv.Type.con, var = TypeEnv.Type.var}
-fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
-  let
-    val ty = CoreML.Pat.ty pat
-    val ty' = loopTy ty
-    val pat =
-      case CoreML.Pat.node pat of
-        CoreML.Pat.Con {arg, con, targs} =>
-          MatchCompile.NestedPat.Con
-            { arg = Option.map (arg, patToNestedPat)
-            , con = con
-            , targs = Vector.map (targs, loopTy)
-            }
-      | CoreML.Pat.Const const =>
-          let
-            val const = const ()
-          in
-            MatchCompile.NestedPat.Const
-              { const = const
-              , isChar = CoreML.Type.isCharX ty
-              , isInt = CoreML.Type.isInt ty
-              }
-          end
-      | CoreML.Pat.Layered (v, t) =>
-          MatchCompile.NestedPat.Layered (v, patToNestedPat t)
-      | CoreML.Pat.List ts =>
-          let
-            open MatchCompile
-            val targs = Vector.map
-              (#2 (valOf (CoreML.Type.deConOpt ty)), loopTy)
-          in
-            Vector.fold
-              ( ts
-              , NestedPat.Con {arg = NONE, con = CoreML.Con.nill, targs = targs}
-              , fn (p, np) =>
-                  NestedPat.Con
-                    { arg = SOME (NestedPat.tuple (Vector.new2
-                        (patToNestedPat p, NestedPat.make (np, ty'))))
-                    , con = CoreML.Con.cons
-                    , targs = targs
-                    }
-              )
-          end
-      | CoreML.Pat.Or ts =>
-          MatchCompile.NestedPat.Or (Vector.map (ts, patToNestedPat))
-      | CoreML.Pat.Record r =>
-          let
-            open MatchCompile
-          in
-            NestedPat.Record
-              (SortedRecord.fromVector
-                 (Vector.map
-                    ( CoreML.Type.deRecord ty
-                    , fn (f: Field.t, t: CoreML.Type.t) =>
-                        ( f
-                        , case Record.peek (r, f) of
-                            NONE => NestedPat.make (NestedPat.Wild, loopTy t)
-                          | SOME p => patToNestedPat p
-                        )
-                    )))
-          end
-      | CoreML.Pat.Var v => MatchCompile.NestedPat.Var v
-      | CoreML.Pat.Vector ts =>
-          MatchCompile.NestedPat.Vector (Vector.map (ts, patToNestedPat))
-      | CoreML.Pat.Wild => MatchCompile.NestedPat.Wild
-  in
-    MatchCompile.NestedPat.make (pat, ty')
-  end
-
 local
+  val {hom = loopTy, ...} =
+    CoreML.Type.makeHom {con = TypeEnv.Type.con, var = TypeEnv.Type.var}
   val {get = conTycon, set = setConTycon, ...} = Property.getSet
     (CoreML.Con.plist, Property.initRaise ("conTycon", CoreML.Con.layout))
-  val conTycon =
-    Trace.trace
-      ("Defunctorize.conTycon", CoreML.Con.layout, CoreML.Tycon.layout) conTycon
-  val setConTycon =
-    Trace.trace2
-      ( "Defunctorize.setConTycon"
-      , CoreML.Con.layout
-      , CoreML.Tycon.layout
-      , Unit.layout
-      ) setConTycon
   val {get = tyconCons, set = setTyconCons, ...} = Property.getSet
     (CoreML.Tycon.plist, Property.initRaise ("tyconCons", CoreML.Tycon.layout))
-  fun recLayout {con, hasArg} =
-    Layout.record
-      [("con", CoreML.Con.layout con), ("hasArg", Bool.layout hasArg)]
-  val tyconCons =
-    Trace.trace
-      ("Defunctorize.tyconCons", CoreML.Tycon.layout, Vector.layout recLayout)
-      tyconCons
 in
+  fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
+    let
+      val ty = CoreML.Pat.ty pat
+      val ty' = loopTy ty
+      val pat =
+        case CoreML.Pat.node pat of
+          CoreML.Pat.Con {arg, con, targs} =>
+            MatchCompile.NestedPat.Con
+              { arg = Option.map (arg, patToNestedPat)
+              , con = con
+              , targs = Vector.map (targs, loopTy)
+              }
+        | CoreML.Pat.Const const =>
+            let
+              val const = const ()
+            in
+              MatchCompile.NestedPat.Const
+                { const = const
+                , isChar = CoreML.Type.isCharX ty
+                , isInt = CoreML.Type.isInt ty
+                }
+            end
+        | CoreML.Pat.Layered (v, t) =>
+            MatchCompile.NestedPat.Layered (v, patToNestedPat t)
+        | CoreML.Pat.List ts =>
+            let
+              open MatchCompile
+              val targs = Vector.map
+                (#2 (valOf (CoreML.Type.deConOpt ty)), loopTy)
+            in
+              Vector.fold
+                ( ts
+                , NestedPat.Con
+                    {arg = NONE, con = CoreML.Con.nill, targs = targs}
+                , fn (p, np) =>
+                    NestedPat.Con
+                      { arg = SOME (NestedPat.tuple (Vector.new2
+                          (patToNestedPat p, NestedPat.make (np, ty'))))
+                      , con = CoreML.Con.cons
+                      , targs = targs
+                      }
+                )
+            end
+        | CoreML.Pat.Or ts =>
+            MatchCompile.NestedPat.Or (Vector.map (ts, patToNestedPat))
+        | CoreML.Pat.Record r =>
+            let
+              open MatchCompile
+            in
+              NestedPat.Record
+                (SortedRecord.fromVector
+                   (Vector.map
+                      ( CoreML.Type.deRecord ty
+                      , fn (f: Field.t, t: CoreML.Type.t) =>
+                          ( f
+                          , case Record.peek (r, f) of
+                              NONE => NestedPat.make (NestedPat.Wild, loopTy t)
+                            | SOME p => patToNestedPat p
+                          )
+                      )))
+            end
+        | CoreML.Pat.Var v => MatchCompile.NestedPat.Var v
+        | CoreML.Pat.Vector ts =>
+            MatchCompile.NestedPat.Vector (Vector.map (ts, patToNestedPat))
+        | CoreML.Pat.Wild => MatchCompile.NestedPat.Wild
+    in
+      MatchCompile.NestedPat.make (pat, ty')
+    end
+
   fun compileMatches (dec: CoreML.Dec.t) : unit =
     let
       fun goCase {exp, matchDiags, rules, test, noMatch, region, ctxt} =
@@ -137,10 +121,6 @@ in
                   )
             end
           val testType = loopTy (CoreML.Exp.ty test)
-          val () = print ("Case Type: " ^ "\n")
-          val () = Layout.outputl (CoreML.Type.layout caseType, Out.error)
-          val () = print ("Test Type: " ^ "\n")
-          val () = Layout.outputl (CoreML.Type.layout testType, Out.error)
           val test = CoreML.Var.newNoname ()
           val (_, nonexhaustive) =
             MatchCompile.matchCompile
@@ -311,24 +291,24 @@ fun parseAndElaborateMLB input =
 
 val escapeCode = "\^[[H\^["
 
-fun clearScreen () = ()
-(* let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
-in TextIO.output (strm, escapeCode ^ "c"); TextIO.closeOut strm
-end *)
+fun clearScreen () =
+  let val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+  in TextIO.output (strm, escapeCode ^ "c"); TextIO.closeOut strm
+  end
 
-fun printTopLeft text = print text
-(* let
-  val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
-in
-  (* pad X by 15 spaces so that it is to the right of the status line *)
-  TextIO.output (strm, escapeCode ^ "[1;15H" ^ text);
-  TextIO.closeOut strm
-end *)
+fun printTopLeft text =
+  let
+    val strm = TextIO.openOut (Posix.ProcEnv.ctermid ())
+  in
+    (* pad X by 15 spaces so that it is to the right of the status line *)
+    TextIO.output (strm, escapeCode ^ "[1;15H" ^ text);
+    TextIO.closeOut strm
+  end
 
-fun inGreen text = text
-(* escapeCode ^ "[32m" ^ text ^ escapeCode ^ "[0m" *)
-fun inRed text = text
-(* escapeCode ^ "[31m" ^ text ^ escapeCode ^ "[0m" *)
+fun inGreen text =
+  escapeCode ^ "[32m" ^ text ^ escapeCode ^ "[0m"
+fun inRed text =
+  escapeCode ^ "[31m" ^ text ^ escapeCode ^ "[0m"
 
 fun reelaborateForChanges lastTime mlb basdec =
   let
@@ -432,8 +412,6 @@ structure Main =
 struct
   fun main _ =
     let
-      (* val () = Trace.Immediate.on ["Defunctorize.conTycon", "Defunctorize.tyconCons", "Defunctorize.setConTycon"] *)
-      val () = Trace.Immediate.all ()
       val () = setControlRefs ()
       exception InvalidArgument
       val arg =
@@ -492,6 +470,3 @@ end
 fun main () =
   ignore (Main.main ("", []))
 val () = if MLton.isMLton then main () else ()
-
-(* fun a (SOME 1, SOME 2) = NONE *)
-fun a (1, 2) = (3, 4)
