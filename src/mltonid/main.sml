@@ -98,27 +98,10 @@ in
               datatype z = datatype CoreML.Exp.noMatch
             in
               case noMatch of
-                Impossible =>
-                  ( print ("Impossible" ^ "\n")
-                  ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
-                  ; cases
-                  )
+                Impossible => cases
               | RaiseAgain => raiseExn ()
               | RaiseBind => raiseExn ()
-              | RaiseMatch =>
-                  ( print ("RaiseMatch" ^ "\n")
-                  ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
-                  ; let
-                      val cases = raiseExn ()
-                    in
-                      Layout.outputl
-                        ( Vector.layout MatchCompile.NestedPat.layout
-                            (Vector.map (cases, #1))
-                        , Out.error
-                        );
-                      cases
-                    end
-                  )
+              | RaiseMatch => raiseExn ()
             end
           val testType = loopTy (CoreML.Exp.ty test)
           val test = CoreML.Var.newNoname ()
