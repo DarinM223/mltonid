@@ -398,12 +398,12 @@ struct
       val time = ref (Time.now ())
       val errorFile = OS.FileSys.tmpName ()
     in
-      Control.diagnosticWriter
-      := SOME (fn layout => Layout.outputl (layout, Out.error));
       print "Initial elaboration...\n";
-      ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
+      ( diagnosticToFile errorFile (fn () =>
+          parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)))
       ; clearScreen ()
       ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
+      ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
       )
       handle
         Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
