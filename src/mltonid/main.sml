@@ -213,16 +213,10 @@ in
                 end
           in
             Vector.foreach (dbs, fn {cons, tycon, tyvars} =>
-              let
-                val _ = setTyconCons (tycon, Vector.map (cons, fn {arg, con} =>
+              ( setTyconCons (tycon, Vector.map (cons, fn {arg, con} =>
                   {con = con, hasArg = isSome arg}))
-                val cons = Vector.map (cons, fn {arg, con} =>
-                  ( setConTycon (con, tycon)
-                  ; {arg = Option.map (arg, loopTy), con = con}
-                  ))
-              in
-                ()
-              end)
+              ; Vector.foreach (cons, fn {arg, con} => setConTycon (con, tycon))
+              ))
           end
       | CoreML.Dec.Exception {con, ...} => setConTycon (con, CoreML.Tycon.exn)
       | CoreML.Dec.Fun {decs, ...} =>
@@ -230,22 +224,20 @@ in
       | CoreML.Dec.Val {matchDiags, rvbs, vbs, tyvars} =>
           ( Vector.foreach (rvbs, fn {lambda, ...} => goLambda lambda)
           ; Vector.foreach (vbs, fn {ctxt, exp, pat, layPat, regionPat, ...} =>
-              ( goCase
-                  { exp = exp
-                  , matchDiags = matchDiags
-                  , rules = Vector.new1
-                      { exp = exp
-                      , layPat = SOME layPat
-                      , pat = pat
-                      , regionPat = regionPat
-                      }
-                  , test = exp
-                  , noMatch = CoreML.Exp.RaiseBind
-                  , region = regionPat
-                  , ctxt = ctxt
-                  }
-              ; goExp exp
-              ))
+              goCase
+                { exp = exp
+                , matchDiags = matchDiags
+                , rules = Vector.new1
+                    { exp = exp
+                    , layPat = SOME layPat
+                    , pat = pat
+                    , regionPat = regionPat
+                    }
+                , test = exp
+                , noMatch = CoreML.Exp.RaiseBind
+                , region = regionPat
+                , ctxt = ctxt
+                })
           )
     end
 end
