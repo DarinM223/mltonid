@@ -79,10 +79,9 @@ in
     let
       fun goCase {exp, matchDiags, rules, test, noMatch, region, ctxt} =
         let
-          val bogusExp = (CoreML.Var.bogus, CoreML.Type.unit)
           val caseType = loopTy (CoreML.Exp.ty exp)
           val cases = Vector.map (rules, fn {exp, pat, ...} =>
-            (goExp exp; (patToNestedPat pat, fn _ => fn _ => bogusExp)))
+            (goExp exp; (patToNestedPat pat, fn _ => fn _ => CoreML.Type.unit)))
 
           fun raiseExn () =
             let
@@ -91,7 +90,8 @@ in
                 MatchCompile.NestedPat.make
                   (MatchCompile.NestedPat.Var e, CoreML.Exp.ty test)
             in
-              Vector.concat [cases, Vector.new1 (pat, fn _ => fn _ => bogusExp)]
+              Vector.concat
+                [cases, Vector.new1 (pat, fn _ => fn _ => CoreML.Type.unit)]
             end
           val cases =
             let
@@ -118,7 +118,7 @@ in
               ( print ("Match compile error: " ^ text ^ "\n")
               ; print ("In case: " ^ "\n")
               ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
-              ; (bogusExp, fn _ => NONE)
+              ; (CoreML.Type.unit, fn _ => NONE)
               )
           val dropOnlyExns =
             case #nonexhaustiveExn matchDiags of
