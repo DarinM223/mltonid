@@ -1,79 +1,87 @@
-fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
-  let
-    val ty = CoreML.Pat.ty pat
-    val pat =
-      case CoreML.Pat.node pat of
-        CoreML.Pat.Con {arg, con, targs} =>
-          MatchCompile.NestedPat.Con
-            {arg = Option.map (arg, patToNestedPat), con = con, targs = targs}
-      | CoreML.Pat.Const const =>
-          let
-            val const = const ()
-          in
-            MatchCompile.NestedPat.Const
-              { const = const
-              , isChar = CoreML.Type.isCharX ty
-              , isInt = CoreML.Type.isInt ty
-              }
-          end
-      | CoreML.Pat.Layered (v, t) =>
-          MatchCompile.NestedPat.Layered (v, patToNestedPat t)
-      | CoreML.Pat.List ts =>
-          let
-            open MatchCompile
-            val targs = #2 (valOf (CoreML.Type.deConOpt ty))
-          in
-            Vector.fold
-              ( ts
-              , NestedPat.Con {arg = NONE, con = CoreML.Con.nill, targs = targs}
-              , fn (p, np) =>
-                  NestedPat.Con
-                    { arg = SOME (NestedPat.tuple (Vector.new2
-                        (patToNestedPat p, NestedPat.make (np, ty))))
-                    , con = CoreML.Con.cons
-                    , targs = targs
-                    }
-              )
-          end
-      | CoreML.Pat.Or ts =>
-          MatchCompile.NestedPat.Or (Vector.map (ts, patToNestedPat))
-      | CoreML.Pat.Record r =>
-          let
-            open MatchCompile
-          in
-            NestedPat.Record
-              (SortedRecord.fromVector
-                 (Vector.map
-                    ( CoreML.Type.deRecord ty
-                    , fn (f, t: CoreML.Type.t) =>
-                        ( f
-                        , case Record.peek (r, f) of
-                            NONE => NestedPat.make (NestedPat.Wild, ty)
-                          | SOME p => patToNestedPat p
-                        )
-                    )))
-          end
-      | CoreML.Pat.Var v => MatchCompile.NestedPat.Var v
-      | CoreML.Pat.Vector ts =>
-          MatchCompile.NestedPat.Vector (Vector.map (ts, patToNestedPat))
-      | CoreML.Pat.Wild => MatchCompile.NestedPat.Wild
-  in
-    MatchCompile.NestedPat.T {pat = pat, ty = ty}
-  end
-
 local
+  val {hom = loopTy, ...} =
+    CoreML.Type.makeHom {con = TypeEnv.Type.con, var = TypeEnv.Type.var}
   val {get = conTycon, set = setConTycon, ...} = Property.getSet
     (CoreML.Con.plist, Property.initRaise ("conTycon", CoreML.Con.layout))
   val {get = tyconCons, set = setTyconCons, ...} = Property.getSet
     (CoreML.Tycon.plist, Property.initRaise ("tyconCons", CoreML.Tycon.layout))
 in
+  fun patToNestedPat (pat: CoreML.Pat.t) : MatchCompile.NestedPat.t =
+    let
+      val ty = CoreML.Pat.ty pat
+      val ty' = loopTy ty
+      val pat =
+        case CoreML.Pat.node pat of
+          CoreML.Pat.Con {arg, con, targs} =>
+            MatchCompile.NestedPat.Con
+              { arg = Option.map (arg, patToNestedPat)
+              , con = con
+              , targs = Vector.map (targs, loopTy)
+              }
+        | CoreML.Pat.Const const =>
+            let
+              val const = const ()
+            in
+              MatchCompile.NestedPat.Const
+                { const = const
+                , isChar = CoreML.Type.isCharX ty
+                , isInt = CoreML.Type.isInt ty
+                }
+            end
+        | CoreML.Pat.Layered (v, t) =>
+            MatchCompile.NestedPat.Layered (v, patToNestedPat t)
+        | CoreML.Pat.List ts =>
+            let
+              open MatchCompile
+              val targs = Vector.map
+                (#2 (valOf (CoreML.Type.deConOpt ty)), loopTy)
+            in
+              Vector.fold
+                ( ts
+                , NestedPat.Con
+                    {arg = NONE, con = CoreML.Con.nill, targs = targs}
+                , fn (p, np) =>
+                    NestedPat.Con
+                      { arg = SOME (NestedPat.tuple (Vector.new2
+                          (patToNestedPat p, NestedPat.make (np, ty'))))
+                      , con = CoreML.Con.cons
+                      , targs = targs
+                      }
+                )
+            end
+        | CoreML.Pat.Or ts =>
+            MatchCompile.NestedPat.Or (Vector.map (ts, patToNestedPat))
+        | CoreML.Pat.Record r =>
+            let
+              open MatchCompile
+            in
+              NestedPat.Record
+                (SortedRecord.fromVector
+                   (Vector.map
+                      ( CoreML.Type.deRecord ty
+                      , fn (f: Field.t, t: CoreML.Type.t) =>
+                          ( f
+                          , case Record.peek (r, f) of
+                              NONE => NestedPat.make (NestedPat.Wild, loopTy t)
+                            | SOME p => patToNestedPat p
+                          )
+                      )))
+            end
+        | CoreML.Pat.Var v => MatchCompile.NestedPat.Var v
+        | CoreML.Pat.Vector ts =>
+            MatchCompile.NestedPat.Vector (Vector.map (ts, patToNestedPat))
+        | CoreML.Pat.Wild => MatchCompile.NestedPat.Wild
+    in
+      MatchCompile.NestedPat.make (pat, ty')
+    end
+
   fun compileMatches (dec: CoreML.Dec.t) : unit =
     let
       fun goCase {exp, matchDiags, rules, test, noMatch, region, ctxt} =
         let
-          val caseType = CoreML.Exp.ty exp
+          val caseType = loopTy (CoreML.Exp.ty exp)
           val cases = Vector.map (rules, fn {exp, pat, ...} =>
-            (goExp exp; (patToNestedPat pat, fn _ => fn _ => ())))
+            (goExp exp; (patToNestedPat pat, fn _ => fn _ => CoreML.Type.unit)))
 
           fun raiseExn () =
             let
@@ -82,7 +90,8 @@ in
                 MatchCompile.NestedPat.make
                   (MatchCompile.NestedPat.Var e, CoreML.Exp.ty test)
             in
-              Vector.concat [cases, Vector.new1 (pat, fn _ => fn _ => ())]
+              Vector.concat
+                [cases, Vector.new1 (pat, fn _ => fn _ => CoreML.Type.unit)]
             end
           val cases =
             let
@@ -94,9 +103,9 @@ in
               | RaiseBind => raiseExn ()
               | RaiseMatch => raiseExn ()
             end
-          val testType = CoreML.Exp.ty test
+          val testType = loopTy (CoreML.Exp.ty test)
           val test = CoreML.Var.newNoname ()
-          val ((), nonexhaustive) =
+          val (_, nonexhaustive) =
             MatchCompile.matchCompile
               { caseType = caseType
               , cases = cases
@@ -109,7 +118,7 @@ in
               ( print ("Match compile error: " ^ text ^ "\n")
               ; print ("In case: " ^ "\n")
               ; Layout.outputl (CoreML.Exp.layout exp, Out.error)
-              ; ((), fn _ => NONE)
+              ; (CoreML.Type.unit, fn _ => NONE)
               )
           val dropOnlyExns =
             case #nonexhaustiveExn matchDiags of
@@ -204,14 +213,10 @@ in
                 end
           in
             Vector.foreach (dbs, fn {cons, tycon, tyvars} =>
-              let
-                val _ = setTyconCons (tycon, Vector.map (cons, fn {arg, con} =>
+              ( setTyconCons (tycon, Vector.map (cons, fn {arg, con} =>
                   {con = con, hasArg = isSome arg}))
-                val cons = Vector.map (cons, fn {arg, con} =>
-                  (setConTycon (con, tycon); {arg = arg, con = con}))
-              in
-                ()
-              end)
+              ; Vector.foreach (cons, fn {arg, con} => setConTycon (con, tycon))
+              ))
           end
       | CoreML.Dec.Exception {con, ...} => setConTycon (con, CoreML.Tycon.exn)
       | CoreML.Dec.Fun {decs, ...} =>
@@ -219,22 +224,20 @@ in
       | CoreML.Dec.Val {matchDiags, rvbs, vbs, tyvars} =>
           ( Vector.foreach (rvbs, fn {lambda, ...} => goLambda lambda)
           ; Vector.foreach (vbs, fn {ctxt, exp, pat, layPat, regionPat, ...} =>
-              ( goCase
-                  { exp = exp
-                  , matchDiags = matchDiags
-                  , rules = Vector.new1
-                      { exp = exp
-                      , layPat = SOME layPat
-                      , pat = pat
-                      , regionPat = regionPat
-                      }
-                  , test = exp
-                  , noMatch = CoreML.Exp.RaiseBind
-                  , region = regionPat
-                  , ctxt = ctxt
-                  }
-              ; goExp exp
-              ))
+              goCase
+                { exp = exp
+                , matchDiags = matchDiags
+                , rules = Vector.new1
+                    { exp = exp
+                    , layPat = SOME layPat
+                    , pat = pat
+                    , regionPat = regionPat
+                    }
+                , test = exp
+                , noMatch = CoreML.Exp.RaiseBind
+                , region = regionPat
+                , ctxt = ctxt
+                })
           )
     end
 end
@@ -395,12 +398,12 @@ struct
       val time = ref (Time.now ())
       val errorFile = OS.FileSys.tmpName ()
     in
-      Control.diagnosticWriter
-      := SOME (fn layout => Layout.outputl (layout, Out.error));
       print "Initial elaboration...\n";
-      ( parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg))
+      ( diagnosticToFile errorFile (fn () =>
+          parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)))
       ; clearScreen ()
       ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
+      ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
       )
       handle
         Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
