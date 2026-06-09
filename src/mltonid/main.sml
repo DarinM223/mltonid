@@ -397,36 +397,32 @@ struct
       val () = clearScreen ()
       val time = ref (Time.now ())
       val errorFile = OS.FileSys.tmpName ()
+      fun elabHandler (onErr: 'a) (f: unit -> 'a) : 'a =
+        diagnosticToFile errorFile f
+        handle
+          Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
+        | Control.CompileError => onErr
+        | e => (print "Caught unknown exception during elaboration\n"; raise e);
     in
       print "Initial elaboration...\n";
-      ( diagnosticToFile errorFile (fn () =>
-          parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)))
-      ; clearScreen ()
-      ; printStatus (Time.toSeconds (Time.- (Time.now (), !time)))
-      ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
-      )
-      handle
-        Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
-      | _ => ();
+      elabHandler () (fn () =>
+        parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)));
+      clearScreen ();
+      printStatus (Time.toSeconds (Time.- (Time.now (), !time)));
+      File.withIn (errorFile, fn inn => In.foreachLine (inn, print));
       while true do
         let
           val () = Control.numErrors := 0
           val startTime = Time.now ()
           val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
-          val changed =
-            diagnosticToFile errorFile (fn () =>
-              let
-                val changed = reelaborateForChanges (!time) arg basis
-              in
-                if changed then
-                  (time := Time.now (); parseAndElaborateMLB basis)
-                else
-                  ();
-                changed
-              end)
-            handle
-              Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
-            | _ => true
+          val changed = elabHandler true (fn () =>
+            let
+              val changed = reelaborateForChanges (!time) arg basis
+            in
+              if changed then (time := Time.now (); parseAndElaborateMLB basis)
+              else ();
+              changed
+            end)
           val seconds = Time.toSeconds (Time.- (Time.now (), startTime))
         in
           if changed then

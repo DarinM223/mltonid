@@ -11,6 +11,8 @@ signature CONTROL =
    sig
       include CONTROL_FLAGS
 
+      exception CompileError
+
       (* Tracing and other informative messages.
        * Some take a verbosity argument that specifies the verbosity level at
        * which messages should be printed.
