@@ -400,9 +400,14 @@ struct
       fun elabHandler (onErr: 'a) (f: unit -> 'a) : 'a =
         diagnosticToFile errorFile f
         handle
-          Fail text => (print ("Fail: " ^ text ^ "\n"); raise Fail text)
-        | Control.CompileError => onErr
-        | e => (print "Caught unknown exception during elaboration\n"; raise e);
+          Control.CompileError => onErr
+        | e =>
+            ( print
+                ("Caught exception during elaboration: " ^ exnMessage e ^ "\n")
+            ; raise e
+            );
+      fun sleep () =
+        OS.Process.sleep (Time.seconds 1)
     in
       print "Initial elaboration...\n";
       elabHandler () (fn () =>
@@ -431,9 +436,10 @@ struct
             ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
             )
           else
-            OS.Process.sleep (Time.seconds 1)
+            sleep ()
         end
-        handle _ => print "Error parsing MLB\n";
+        handle e =>
+          (print ("Error parsing MLB: " ^ exnMessage e ^ "\n"); sleep ());
       OS.Process.success
     end
 end
