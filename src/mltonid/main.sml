@@ -394,6 +394,15 @@ struct
           [arg] => arg
         | _ =>
             (print "Expected MLB file path argument\n"; raise InvalidArgument)
+      val parseArg =
+        let
+          val smlFile = fn () => lexAndParseMLB (MLBString.fromSMLFile arg)
+          val mlbFile = fn () => lexAndParseMLB (MLBString.fromMLBFile arg)
+        in
+          case OS.Path.ext arg of
+            SOME "mlb" => mlbFile
+          | _ => smlFile
+        end
       val () = clearScreen ()
       val time = ref (Time.now ())
       val errorFile = OS.FileSys.tmpName ()
@@ -410,8 +419,7 @@ struct
         OS.Process.sleep (Time.seconds 1)
     in
       print "Initial elaboration...\n";
-      elabHandler () (fn () =>
-        parseAndElaborateMLB (lexAndParseMLB (MLBString.fromMLBFile arg)));
+      elabHandler () (fn () => parseAndElaborateMLB (parseArg ()));
       clearScreen ();
       printStatus (Time.toSeconds (Time.- (Time.now (), !time)));
       File.withIn (errorFile, fn inn => In.foreachLine (inn, print));
@@ -419,7 +427,7 @@ struct
         let
           val () = Control.numErrors := 0
           val startTime = Time.now ()
-          val basis = lexAndParseMLB (MLBString.fromMLBFile arg)
+          val basis = parseArg ()
           val changed = elabHandler true (fn () =>
             let
               val changed = reelaborateForChanges (!time) arg basis
