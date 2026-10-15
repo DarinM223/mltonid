@@ -1,0 +1,8 @@
+$(SML_LIB)/basis/basis.mlb
+inotify.sig
+ann
+  "allowFFI true"
+in
+  inotify.mlton.sml
+end
+inotify-parser.sml

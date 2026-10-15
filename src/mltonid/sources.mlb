@@ -1,3 +1,4 @@
 $(SML_LIB)/basis/basis.mlb
+inotify/inotify.mlb
 structs.mlb
 main.sml
