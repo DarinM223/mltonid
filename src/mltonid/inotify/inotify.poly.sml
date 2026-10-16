@@ -20,6 +20,21 @@ struct
   | ErrorRemoveWatch of fd * wd
   | ErrorClose of fd
   | ErrorConvertPollDesc of fd
+  datatype error_reason =
+    ErrorInit
+  | ErrorAddWatch of string
+  | ErrorRemoveWatch of fd * wd
+  | ErrorClose of fd
+  | ErrorConvertPollDesc of fd
+  val showError_reason =
+    fn ErrorInit => "ErrorInit"
+     | ErrorAddWatch t0 => "ErrorAddWatch " ^ "(" ^ "\"" ^ t0 ^ "\"" ^ ")"
+     | ErrorRemoveWatch (t1, t2) =>
+      "ErrorRemoveWatch " ^ "("
+      ^ String.concatWith ", " [Int.toString t1, Int.toString t2] ^ ")"
+     | ErrorClose t3 => "ErrorClose " ^ "(" ^ Int.toString t3 ^ ")"
+     | ErrorConvertPollDesc t4 =>
+      "ErrorConvertPollDesc " ^ "(" ^ Int.toString t4 ^ ")"
   exception Error of error_reason
 
   val libc = Foreign.loadLibrary "libc.so.6"

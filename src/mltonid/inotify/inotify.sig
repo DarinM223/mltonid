@@ -23,6 +23,7 @@ sig
   | ErrorClose of fd
   | ErrorConvertPollDesc of fd
   exception Error of error_reason
+  val showError_reason: error_reason -> string
 
   val IN_ACCESS: Word32.word
   val IN_ATTRIB: Word32.word

@@ -285,56 +285,6 @@ fun inGreen text =
 fun inRed text =
   escapeCode ^ "[31m" ^ text ^ escapeCode ^ "[0m"
 
-fun reelaborateForChanges lastTime mlb basdec =
-  let
-    fun isModified file =
-      Time.> (File.modTime file, lastTime)
-    fun reelaborateMLB mlb =
-      ( if Option.isSome (HashTable.peek (Elaborate.psi, mlb)) then
-          printTopLeft ("Reelaborating " ^ mlb ^ "\n")
-        else
-          ()
-      ; HashTable.remove (Elaborate.psi, mlb) handle _ => ()
-      ; true
-      )
-    fun reelaborateForChanges mlb (Ast.Basdec.Ann (_, _, basdec)) =
-          reelaborateForChanges mlb (Ast.Basdec.node basdec)
-      | reelaborateForChanges mlb (Ast.Basdec.MLB ({fileAbs, ...}, basdec)) =
-          (if isModified fileAbs then
-             reelaborateMLB fileAbs
-           else
-             reelaborateForChanges fileAbs
-               (Ast.Basdec.node (Promise.force basdec)))
-          andalso reelaborateMLB mlb
-      | reelaborateForChanges mlb (Ast.Basdec.Seq basdecs) =
-          List.exists
-            ( List.map (basdecs, reelaborateForChanges mlb o Ast.Basdec.node)
-            , fn b => b
-            ) andalso reelaborateMLB mlb
-      | reelaborateForChanges mlb (Ast.Basdec.Local (l, body)) =
-          (reelaborateForChanges mlb (Ast.Basdec.node l)
-           orelse reelaborateForChanges mlb (Ast.Basdec.node body))
-          andalso reelaborateMLB mlb
-      | reelaborateForChanges mlb (Ast.Basdec.Basis basexps) =
-          let
-            fun go (Ast.Basexp.Bas basdec) =
-                  reelaborateForChanges mlb (Ast.Basdec.node basdec)
-              | go (Ast.Basexp.Let (basdec, basexp)) =
-                  reelaborateForChanges mlb (Ast.Basdec.node basdec)
-                  orelse go (Ast.Basexp.node basexp)
-              | go _ = false
-            val basexps = Vector.map (basexps, fn {def, ...} =>
-              go (Ast.Basexp.node def))
-          in
-            Vector.exists (basexps, fn b => b) andalso reelaborateMLB mlb
-          end
-      | reelaborateForChanges mlb (Ast.Basdec.Prog ({fileAbs, ...}, _)) =
-          isModified fileAbs andalso reelaborateMLB mlb
-      | reelaborateForChanges _ _ = false
-  in
-    reelaborateForChanges mlb (Ast.Basdec.node basdec)
-  end
-
 fun diagnosticToFile file thunk =
   File.withOut (file, fn out =>
     let
@@ -383,8 +333,73 @@ fun setControlRefs () =
     Control.libTargetDir := mltonDir ^ "/targets/" ^ target
   end
 
-structure Main =
+functor MainFn(Poll: EVENT_POLL) =
 struct
+  fun reelaborateForChanges lastTime mlb basdec =
+    let
+      val marked = ref (Poll.empty ())
+      fun mark path =
+        marked := Poll.addFilepath path (!marked)
+
+      fun isModified file =
+        Time.> (File.modTime file, lastTime)
+      fun reelaborateMLB mlb =
+        ( if Option.isSome (HashTable.peek (Elaborate.psi, mlb)) then
+            printTopLeft ("Reelaborating " ^ mlb ^ "\n")
+          else
+            ()
+        ; HashTable.remove (Elaborate.psi, mlb) handle _ => ()
+        ; true
+        )
+      fun reelaborateForChanges mlb (Ast.Basdec.Ann (_, _, basdec)) =
+            reelaborateForChanges mlb (Ast.Basdec.node basdec)
+        | reelaborateForChanges mlb (Ast.Basdec.MLB ({fileAbs, ...}, basdec)) =
+            ( mark fileAbs
+            ; (if isModified fileAbs then
+                 reelaborateMLB fileAbs
+               else
+                 reelaborateForChanges fileAbs
+                   (Ast.Basdec.node (Promise.force basdec)))
+              andalso reelaborateMLB mlb
+            )
+        | reelaborateForChanges mlb (Ast.Basdec.Seq basdecs) =
+            List.exists
+              ( List.map (basdecs, reelaborateForChanges mlb o Ast.Basdec.node)
+              , fn b => b
+              ) andalso reelaborateMLB mlb
+        | reelaborateForChanges mlb (Ast.Basdec.Local (l, body)) =
+            (reelaborateForChanges mlb (Ast.Basdec.node l)
+             orelse reelaborateForChanges mlb (Ast.Basdec.node body))
+            andalso reelaborateMLB mlb
+        | reelaborateForChanges mlb (Ast.Basdec.Basis basexps) =
+            let
+              fun go (Ast.Basexp.Bas basdec) =
+                    reelaborateForChanges mlb (Ast.Basdec.node basdec)
+                | go (Ast.Basexp.Let (basdec, basexp)) =
+                    reelaborateForChanges mlb (Ast.Basdec.node basdec)
+                    orelse go (Ast.Basexp.node basexp)
+                | go _ = false
+              val basexps = Vector.map (basexps, fn {def, ...} =>
+                go (Ast.Basexp.node def))
+            in
+              Vector.exists (basexps, fn b => b) andalso reelaborateMLB mlb
+            end
+        | reelaborateForChanges mlb (Ast.Basdec.Prog ({fileAbs, ...}, _)) =
+            (mark fileAbs; isModified fileAbs andalso reelaborateMLB mlb)
+        | reelaborateForChanges _ (Ast.Basdec.Defs _) = false
+        | reelaborateForChanges _ (Ast.Basdec.Open _) = false
+        | reelaborateForChanges _ Ast.Basdec.Prim = false
+      val () = mark mlb
+      val changed = reelaborateForChanges mlb (Ast.Basdec.node basdec);
+    in
+      Poll.apply (!marked)
+      handle INotify.Error reason =>
+        ( print ("INotify error: " ^ INotify.showError_reason reason ^ "\n")
+        ; raise INotify.Error reason
+        );
+      changed
+    end
+
   fun main _ =
     let
       val () = setControlRefs ()
@@ -416,7 +431,7 @@ struct
             ; raise e
             );
       fun sleep () =
-        OS.Process.sleep (Time.seconds 1)
+        Poll.poll (SOME (Time.seconds 1))
     in
       print "Initial elaboration...\n";
       elabHandler () (fn () => parseAndElaborateMLB (parseArg ()));
@@ -451,6 +466,9 @@ struct
       OS.Process.success
     end
 end
+
+structure Main =
+  MainFn(INotifyCache (structure INotify = INotify val log = print))
 
 fun main () =
   ignore (Main.main ("", []))
