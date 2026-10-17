@@ -4,3 +4,4 @@ Group is
   ../mlton/control/sources.cm
   structs.cm
   main.sml
+  main-simple.sml

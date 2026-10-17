@@ -18,13 +18,26 @@ Building:
 Building with MLton:
 
 ```
-mlton mltonid.mlb
+mlton -output mltonid mltonid-simple.mlb
 ```
+
+for the simple version that only polls and:
+
+```
+mlton -output mltonid mltonid-inotify.mlb
+```
+
+for the version with inotify.
 
 Building with Poly/ML:
 
 ```
-./build_polyml.sh
+./build_polyml.sh mltonid-simple.mlb
+polyc build.sml -o mltonid
+```
+
+```
+./build_polyml.sh mltonid-inotify.mlb
 polyc build.sml -o mltonid
 ```
 
@@ -60,8 +73,8 @@ pull the target specific types and constants. The MLton specific paths needed by
 TODO:
 -----
 
-* Use inotify for faster file watching
-(currently the files are polled every second)
+* ~~Use inotify for faster file watching
+(currently the files are polled every second)~~
 * Don't propagate reelaboration to users of an MLB file if the MLB didn't change its exported signatures
 * Store typechecked MLB signatures on disk for potentially faster
 initial elaboration times

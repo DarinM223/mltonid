@@ -3,13 +3,22 @@ functor INotifyCache (structure INotify: INOTIFY val log: string -> unit) :>
 struct
   type marked = INotify.wd AtomMap.map
 
-  val fd = INotify.init ()
-  val pollDesc = INotify.fdToPollDesc fd
+  val state = ref NONE
 
   val mask = Word32.orb (INotify.IN_CREATE, INotify.IN_MODIFY)
-  val rootWd = INotify.addWatch (fd, ".", mask)
 
   val watched: INotify.wd AtomMap.map ref = ref AtomMap.empty
+
+  fun init () =
+    let
+      val fd = INotify.init ()
+      val pollDesc = INotify.fdToPollDesc fd
+      val rootWd = INotify.addWatch (fd, ".", mask)
+    in
+      state := SOME {fd = fd, pollDesc = pollDesc, rootWd = rootWd}
+    end
+
+  val getState = fn () => Option.valOf (!state)
 
   fun empty () = AtomMap.empty
 
@@ -23,6 +32,7 @@ struct
     end
   fun addFilepath path marked =
     let
+      val {rootWd, ...} = getState ()
       val path = trim path
     in
       if path = "" then marked
@@ -30,6 +40,7 @@ struct
     end
   fun apply marked =
     let
+      val {fd, ...} = getState ()
       fun merge (_, SOME wd, SOME _) = SOME wd
         | merge (dir, SOME wd, NONE) =
             ( log ("Removing watch at path: " ^ Atom.toString dir ^ "\n")
@@ -54,6 +65,7 @@ struct
 
   fun pollWithExt (pollDesc, matchExt, originalTimeout) =
     let
+      val {fd, ...} = getState ()
       val buf = Word8Array.array (1024, 0w0)
       fun loop NONE =
             (case OS.IO.poll ([pollDesc], NONE) of
@@ -102,5 +114,8 @@ struct
     | SOME "cm" => true
     | _ => false
 
-  fun poll timeout = pollWithExt (pollDesc, matchSMLFile, timeout)
+  fun poll timeout =
+    let val {pollDesc, ...} = getState ()
+    in pollWithExt (pollDesc, matchSMLFile, timeout)
+    end
 end

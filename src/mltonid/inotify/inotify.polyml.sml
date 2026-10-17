@@ -53,7 +53,7 @@ struct
   val inotify_add_watch_sym =
     Foreign.buildCall3
       ( inotify_add_watch_ptr
-      , (Foreign.cInt, Foreign.cString, Foreign.cInt)
+      , (Foreign.cInt, Foreign.cString, Foreign.cUint32)
       , Foreign.cInt
       )
 

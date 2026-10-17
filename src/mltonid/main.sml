@@ -403,6 +403,7 @@ struct
   fun main _ =
     let
       val () = setControlRefs ()
+      val () = Poll.init ()
       exception InvalidArgument
       val arg =
         case CommandLine.arguments () of
@@ -466,10 +467,3 @@ struct
       OS.Process.success
     end
 end
-
-structure Main =
-  MainFn(INotifyCache (structure INotify = INotify val log = print))
-
-fun main () =
-  ignore (Main.main ("", []))
-val () = if MLton.isMLton then main () else ()
