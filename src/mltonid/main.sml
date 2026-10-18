@@ -333,7 +333,7 @@ fun setControlRefs () =
     Control.libTargetDir := mltonDir ^ "/targets/" ^ target
   end
 
-functor MainFn(Poll: EVENT_POLL) =
+functor MainFn (structure Poll: EVENT_POLL val pollTime: Time.t option) =
 struct
   fun reelaborateForChanges lastTime mlb basdec =
     let
@@ -431,8 +431,6 @@ struct
                 ("Caught exception during elaboration: " ^ exnMessage e ^ "\n")
             ; raise e
             );
-      fun sleep () =
-        Poll.poll (SOME (Time.seconds 1))
     in
       print "Initial elaboration...\n";
       elabHandler () (fn () => parseAndElaborateMLB (parseArg ()));
@@ -460,10 +458,12 @@ struct
             ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
             )
           else
-            sleep ()
+            Poll.poll pollTime
         end
         handle e =>
-          (print ("Error parsing MLB: " ^ exnMessage e ^ "\n"); sleep ());
+          ( print ("Error parsing MLB: " ^ exnMessage e ^ "\n")
+          ; Poll.poll pollTime
+          );
       OS.Process.success
     end
 end

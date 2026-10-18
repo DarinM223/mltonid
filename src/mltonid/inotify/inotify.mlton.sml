@@ -3,15 +3,13 @@ struct
   type fd = int
   type wd = int
 
-  (* Common inotify mask constants (from Linux <sys/inotify.h>) *)
-  val IN_ACCESS = 0wx00000001 (* File was accessed *)
-  val IN_MODIFY = 0wx00000002 (* File was modified *)
-  val IN_ATTRIB = 0wx00000004 (* Metadata changed *)
-  val IN_CLOSE_WRITE = 0wx00000008 (* Writtable file closed *)
-  val IN_CREATE = 0wx00000100 (* Subfile/directory created *)
-  val IN_DELETE = 0wx00000200 (* Subfile/directory deleted *)
+  val IN_ACCESS = 0wx00000001
+  val IN_MODIFY = 0wx00000002
+  val IN_ATTRIB = 0wx00000004
+  val IN_CLOSE_WRITE = 0wx00000008
+  val IN_CREATE = 0wx00000100
+  val IN_DELETE = 0wx00000200
 
-  (* Linux kernel flag to enforce non-blocking behavior *)
   val IN_NONBLOCK = 0x00000800
 
   datatype error_reason =
@@ -31,7 +29,6 @@ struct
       "ErrorConvertPollDesc " ^ "(" ^ Int.toString t4 ^ ")"
   exception Error of error_reason
 
-  (* Bindings to standard Linux system calls via MLton FFI *)
   val c_inotify_init1 = _import "inotify_init1" : int -> int;
   val c_inotify_add_watch =
     _import "inotify_add_watch" : int * string * Word32.word -> int;
@@ -39,10 +36,8 @@ struct
   val c_read = _import "read" : int * Word8Array.array * int -> int;
   val c_close = _import "close" : int -> int;
 
-  (* Helper to ensure strings are null-terminated for C *)
   fun toCString s = s ^ "\000"
 
-  (* Initializes inotify explicitly with the non-blocking kernel flag *)
   fun init () =
     let val fd = c_inotify_init1 IN_NONBLOCK
     in if fd < 0 then raise Error ErrorInit else fd

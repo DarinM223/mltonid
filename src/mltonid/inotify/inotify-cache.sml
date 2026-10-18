@@ -1,5 +1,7 @@
-functor INotifyCache (structure INotify: INOTIFY val log: string -> unit) :>
-  EVENT_POLL =
+functor INotifyCache
+  (structure INotify: INOTIFY
+   val log: string -> unit
+   val matchFile: string -> bool) :> EVENT_POLL =
 struct
   type marked = INotify.wd AtomMap.map
 
@@ -105,17 +107,8 @@ struct
       loop originalTimeout
     end
 
-  fun matchSMLFile path =
-    case OS.Path.ext path of
-      SOME "sml" => true
-    | SOME "sig" => true
-    | SOME "fun" => true
-    | SOME "mlb" => true
-    | SOME "cm" => true
-    | _ => false
-
   fun poll timeout =
     let val {pollDesc, ...} = getState ()
-    in pollWithExt (pollDesc, matchSMLFile, timeout)
+    in pollWithExt (pollDesc, matchFile, timeout)
     end
 end

@@ -3,7 +3,6 @@ struct
   type fd = int
   type wd = int
 
-  (* Common inotify mask constants *)
   val IN_ACCESS = 0wx00000001
   val IN_MODIFY = 0wx00000002
   val IN_ATTRIB = 0wx00000004
@@ -11,7 +10,6 @@ struct
   val IN_CREATE = 0wx00000100
   val IN_DELETE = 0wx00000200
 
-  (* Linux kernel constant to enforce O_NONBLOCK behavior on the descriptor *)
   val IN_NONBLOCK = 0x00000800
 
   datatype error_reason =
@@ -39,14 +37,12 @@ struct
 
   val libc = Foreign.loadLibrary "libc.so.6"
 
-  (* 1. Swap for inotify_init1 which accepts flags *)
   val inotify_init1_ptr = Foreign.getSymbol libc "inotify_init1"
   val inotify_add_watch_ptr = Foreign.getSymbol libc "inotify_add_watch"
   val inotify_rm_watch_ptr = Foreign.getSymbol libc "inotify_rm_watch"
   val read_ptr = Foreign.getSymbol libc "read"
   val close_ptr = Foreign.getSymbol libc "close"
 
-  (* 2. Map wrapper with an explicit cInt configuration *)
   val inotify_init1_sym =
     Foreign.buildCall1 (inotify_init1_ptr, Foreign.cInt, Foreign.cInt)
 
@@ -69,7 +65,6 @@ struct
 
   fun toCString s = s ^ "\000"
 
-  (* Call init with the non-blocking flag enabled *)
   fun init () =
     let val fd = inotify_init1_sym IN_NONBLOCK
     in if fd < 0 then raise Error ErrorInit else fd
@@ -92,30 +87,25 @@ struct
   fun close fd =
     if close_sym fd < 0 then raise Error (ErrorClose fd) else ()
 
-  (* Updated non-blocking event read *)
+  (* Non-blocking buffer read. Returns -1 instead of hanging if empty *)
   fun readEvents (fd, buf) =
     let
       val len = Word8Array.length buf
       val cBuf = Foreign.Memory.malloc (Word.fromInt len)
       val bytesRead = read_sym (fd, cBuf, len)
+      fun copy i =
+        if i >= bytesRead then
+          ()
+        else
+          let val byte = Foreign.Memory.get8 (cBuf, Word.fromInt i)
+          in Word8Array.update (buf, i, byte); copy (i + 1)
+          end
     in
       if bytesRead < 0 then
         (* If bytesRead is -1, it means no data was ready (EAGAIN) or another error occurred *)
         (Foreign.Memory.free cBuf; bytesRead)
       else
-        let
-          fun copy i =
-            if i >= bytesRead then
-              ()
-            else
-              let val byte = Foreign.Memory.get8 (cBuf, Word.fromInt i)
-              in Word8Array.update (buf, i, byte); copy (i + 1)
-              end
-        in
-          copy 0;
-          Foreign.Memory.free cBuf;
-          bytesRead
-        end
+        (copy 0; Foreign.Memory.free cBuf; bytesRead)
     end
 
   fun fdToPollDesc fd =
