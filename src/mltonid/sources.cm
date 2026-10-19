@@ -2,6 +2,7 @@ Group is
   basis.cm
   ../lib/mlton/sources.cm
   ../mlton/control/sources.cm
+  inotify/inotify.cm
   structs.cm
   main.sml
   main-simple.sml
