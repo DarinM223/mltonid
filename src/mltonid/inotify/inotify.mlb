@@ -1,0 +1,9 @@
+$(SML_LIB)/basis/basis.mlb
+$(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
+inotify.sig
+ann "allowFFI true"
+in inotify.mlton.sml
+end
+inotify-parser.sml
+../events/events.mlb
+inotify-cache.sml

@@ -1,2 +1,2 @@
 src/lib/mlyacc-lib/mlyacc-lib.mlb
-src/mltonid/sources.mlb
+src/mltonid/sources-inotify.mlb

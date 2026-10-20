@@ -457,7 +457,7 @@ PolyML.SaveState.saveState "save" );
 *)
 EOL
 
-mlton -stop f mltonid.mlb \
+mlton -stop f $1 \
     | grep -v "\.mlb" \
     | grep -v "/lib/mlton/sml/basis/" \
     | grep -v "/lib/mlton/targets/" \

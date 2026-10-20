@@ -1,0 +1,7 @@
+group
+  signature EVENT_POLL
+  structure DummyEventPoll
+is
+  $/basis.cm
+  event-poll.sig
+  dummy.sml
