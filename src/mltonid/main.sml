@@ -280,6 +280,75 @@ fun printTopLeft text =
     TextIO.closeOut strm
   end
 
+fun printErrorsReverse (path: string, out: TextIO.outstream) =
+  let
+    val fd =
+      Posix.FileSys.openf
+        (path, Posix.FileSys.O_RDONLY, Posix.FileSys.O.flags [])
+
+    val chunkSize = 8192
+    val chunkPos = Position.fromInt chunkSize
+    val bodyRev: string list ref = ref []
+
+    fun emitBlock header =
+      TextIO.output
+        ( out
+        , header ^ "\n" ^ String.concat (List.map (!bodyRev, fn s => s ^ "\n"))
+        )
+
+    fun consumeLine line =
+      if String.hasPrefix (line, {prefix = "Error: "}) then
+        (emitBlock line; bodyRev := [])
+      else
+        bodyRev := line :: !bodyRev
+
+    fun scanChunk
+      ( v: Word8Vector.vector
+      , i: int
+      , start: Position.int
+      , charsRev: char list
+      , firstLine: bool
+      ) =
+      if i < 0 then
+        scan (start, charsRev, firstLine)
+      else
+        let
+          val c = Char.chr (Word8.toInt (Word8Vector.sub (v, i)))
+        in
+          if c = #"\n" then
+            ( if firstLine andalso List.isEmpty charsRev then ()
+              else consumeLine (String.implode charsRev)
+            ; scanChunk (v, i - 1, start, [], false)
+            )
+          else
+            scanChunk (v, i - 1, start, c :: charsRev, false)
+        end
+
+    and scan (p: Position.int, charsRev: char list, firstLine: bool) =
+      if p = 0 then
+        (if not (List.isEmpty charsRev) then
+           consumeLine (String.implode charsRev)
+         else
+           ())
+      else
+        let
+          val nPos = if p < chunkPos then p else chunkPos
+          val start = p - nPos
+          val _ = Posix.IO.lseek (fd, start, Posix.IO.SEEK_SET)
+          val v = Posix.IO.readVec (fd, Position.toInt nPos)
+        in
+          scanChunk (v, Word8Vector.length v - 1, start, charsRev, firstLine)
+        end
+
+    fun run () =
+      let val endPos = Posix.IO.lseek (fd, 0, Posix.IO.SEEK_END)
+      in scan (endPos, [], true); TextIO.flushOut out
+      end
+  in
+    (run () handle e => (Posix.IO.close fd; raise e));
+    Posix.IO.close fd
+  end
+
 fun inGreen text =
   escapeCode ^ "[32m" ^ text ^ escapeCode ^ "[0m"
 fun inRed text =
@@ -400,24 +469,33 @@ struct
       changed
     end
 
+  exception EarlyExit
+
   fun main _ =
     let
       val () = setControlRefs ()
       val () = Poll.init ()
       exception InvalidArgument
-      val arg =
-        case CommandLine.arguments () of
-          [arg] => arg
-        | _ =>
-            (print "Expected MLB file path argument\n"; raise InvalidArgument)
-      val parseArg =
+      val args = CommandLine.arguments ()
+      val {no = args, yes = flags} = List.partition (args, fn arg =>
+        String.hasPrefix (arg, {prefix = "-"}))
+      val reverseOutput = List.exists (flags, fn flag =>
+        flag = "-r" orelse flag = "-reverse" orelse flag = "--reverse")
+      val (arg, parseArgs) =
         let
-          val smlFile = fn () => lexAndParseMLB (MLBString.fromSMLFile arg)
-          val mlbFile = fn () => lexAndParseMLB (MLBString.fromMLBFile arg)
+          val smlFile = lexAndParseMLB o MLBString.fromSMLFile
+          val mlbFile = lexAndParseMLB o MLBString.fromMLBFile
         in
-          case OS.Path.ext arg of
-            SOME "mlb" => mlbFile
-          | _ => smlFile
+          case args of
+            [] => (print "no files to watch\n"; raise EarlyExit)
+          | [arg] =>
+              (case OS.Path.ext arg of
+                 SOME "mlb" => (arg, fn () => mlbFile arg)
+               | _ => (arg, fn () => smlFile arg))
+          | args =>
+              let val arg = String.concatWith (args, "\n")
+              in (arg, fn () => lexAndParseMLB (MLBString.fromString arg))
+              end
         end
       val () = clearScreen ()
       val time = ref (Time.now ())
@@ -433,15 +511,16 @@ struct
             );
     in
       print "Initial elaboration...\n";
-      elabHandler () (fn () => parseAndElaborateMLB (parseArg ()));
+      elabHandler () (fn () => parseAndElaborateMLB (parseArgs ()));
       clearScreen ();
       printStatus (Time.toSeconds (Time.- (Time.now (), !time)));
-      File.withIn (errorFile, fn inn => In.foreachLine (inn, print));
+      if reverseOutput then printErrorsReverse (errorFile, TextIO.stdOut)
+      else File.withIn (errorFile, fn inn => In.foreachLine (inn, print));
       while true do
         let
           val () = Control.numErrors := 0
           val startTime = Time.now ()
-          val basis = parseArg ()
+          val basis = parseArgs ()
           val changed = elabHandler true (fn () =>
             let
               val changed = reelaborateForChanges (!time) arg basis
@@ -455,7 +534,10 @@ struct
           if changed then
             ( clearScreen ()
             ; printStatus seconds
-            ; File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
+            ; if reverseOutput then
+                printErrorsReverse (errorFile, TextIO.stdOut)
+              else
+                File.withIn (errorFile, fn inn => In.foreachLine (inn, print))
             )
           else
             Poll.poll pollTime
@@ -466,4 +548,5 @@ struct
           );
       OS.Process.success
     end
+    handle EarlyExit => OS.Process.failure
 end

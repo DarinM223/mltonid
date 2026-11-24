@@ -70,6 +70,7 @@ sig
 
   val fromMLBFile: File.t -> t
   val fromSMLFile: File.t -> t
+  val fromString: string -> t
   val lexAndParseMLB: t -> Ast.Basdec.t
 end =
 struct
@@ -87,6 +88,8 @@ struct
       String.concat
         ["local\n", basis, "\n", "in\n", quoteFile input, "\n", "end\n"]
     end
+
+  val fromString = fn str => str
 
   val lexAndParseMLB = MLBFrontEnd.lexAndParseString
 end
