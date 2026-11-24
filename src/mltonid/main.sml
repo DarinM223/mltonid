@@ -469,6 +469,8 @@ struct
       changed
     end
 
+  exception EarlyExit
+
   fun main _ =
     let
       val () = setControlRefs ()
@@ -479,15 +481,21 @@ struct
         String.hasPrefix (arg, {prefix = "-"}))
       val reverseOutput = List.exists (flags, fn flag =>
         flag = "-r" orelse flag = "-reverse" orelse flag = "--reverse")
-      val arg = String.concatWith (args, "\n")
-      val parseArg =
+      val (arg, parseArgs) =
         let
-          val smlFile = fn () => lexAndParseMLB (MLBString.fromSMLFile arg)
-          val mlbFile = fn () => lexAndParseMLB (MLBString.fromMLBFile arg)
+          val smlFile = lexAndParseMLB o MLBString.fromSMLFile
+          val mlbFile = lexAndParseMLB o MLBString.fromMLBFile
         in
-          case OS.Path.ext arg of
-            SOME "mlb" => mlbFile
-          | _ => smlFile
+          case args of
+            [] => (print "no files to watch\n"; raise EarlyExit)
+          | [arg] =>
+              (case OS.Path.ext arg of
+                 SOME "mlb" => (arg, fn () => mlbFile arg)
+               | _ => (arg, fn () => smlFile arg))
+          | args =>
+              let val arg = String.concatWith (args, "\n")
+              in (arg, fn () => lexAndParseMLB (MLBString.fromString arg))
+              end
         end
       val () = clearScreen ()
       val time = ref (Time.now ())
@@ -503,7 +511,7 @@ struct
             );
     in
       print "Initial elaboration...\n";
-      elabHandler () (fn () => parseAndElaborateMLB (parseArg ()));
+      elabHandler () (fn () => parseAndElaborateMLB (parseArgs ()));
       clearScreen ();
       printStatus (Time.toSeconds (Time.- (Time.now (), !time)));
       if reverseOutput then printErrorsReverse (errorFile, TextIO.stdOut)
@@ -512,7 +520,7 @@ struct
         let
           val () = Control.numErrors := 0
           val startTime = Time.now ()
-          val basis = parseArg ()
+          val basis = parseArgs ()
           val changed = elabHandler true (fn () =>
             let
               val changed = reelaborateForChanges (!time) arg basis
@@ -540,4 +548,5 @@ struct
           );
       OS.Process.success
     end
+    handle EarlyExit => OS.Process.failure
 end
