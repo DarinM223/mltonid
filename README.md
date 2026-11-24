@@ -61,6 +61,10 @@ To run mltonid on an MLB file, run:
 mltonid file.mlb
 ```
 
+Multiple MLB files can be specified and mltonid will check all of them. If the `-r`, `-reverse`, or `--reverse` flags
+are specified, then the errors are printed in reverse order, which is useful to
+avoid having to scroll to the beginning to see the first error.
+
 A local build of MLton is required in order to
 pull the target specific types and constants. The MLton specific paths needed by mltonid are configured by setting environment variables. The environment variables expected are:
 

@@ -1,5 +1,6 @@
 group
   structure TextIO
   structure Posix
+  structure Word8Vector
 is
   $/basis.cm
